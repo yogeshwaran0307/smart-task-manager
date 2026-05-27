@@ -77,6 +77,9 @@ WSGI_APPLICATION = 'smart_backend.wsgi.application'
 # ─────────────────────────────────────────────────────────────
 # DATABASE
 # ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# DATABASE
+# ─────────────────────────────────────────────────────────────
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
@@ -84,18 +87,19 @@ DATABASES = {
         'USER': os.getenv('DB_USER'),
         'PASSWORD': os.getenv('DB_PASSWORD'),
         'HOST': os.getenv('DB_HOST'),
-        'PORT': os.getenv('DB_PORT', '4000'),
+        'PORT': os.getenv('DB_PORT'),
 
         'OPTIONS': {
-            'ssl': {
-                'ssl_mode': 'VERIFY_IDENTITY',
-            },
             'charset': 'utf8mb4',
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+
+            # IMPORTANT FOR TIDB CLOUD
+            'ssl': {
+                'ssl_mode': 'VERIFY_IDENTITY'
+            }
         },
     }
 }
-
 # ─────────────────────────────────────────────────────────────
 # AUTH USER MODEL
 # ─────────────────────────────────────────────────────────────
