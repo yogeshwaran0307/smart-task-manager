@@ -91,7 +91,7 @@ DATABASES = {
 
         'OPTIONS': {
             'ssl': {
-                'ssl_mode': 'VERIFY_IDENTITY',
+                'ca': '/etc/ssl/certs/ca-certificates.crt',
             },
             'charset': 'utf8mb4',
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
