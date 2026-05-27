@@ -1,26 +1,26 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { FiLayers, FiEye, FiEyeOff, FiLoader } from 'react-icons/fi';
 
 export default function LoginPage() {
-  const { login, error, setError } = useAuth();
+  const { login, error, setError, user } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (user) navigate('/dashboard', { replace: true });
+  }, [user]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!username.trim() || !password) return;
     setSubmitting(true);
-    const success = await login(username.trim(), password);
+    await login(username.trim(), password);
     setSubmitting(false);
-    // Explicitly navigate — don't rely on state re-render in production
-    if (success) {
-      navigate('/dashboard', { replace: true });
-    }
   };
 
   return (
@@ -34,7 +34,6 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold text-white">SmartTask</h1>
           <p className="text-slate-400 text-sm mt-1">Sign in to your workspace</p>
         </div>
-
         <div className="card p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
@@ -42,7 +41,6 @@ export default function LoginPage() {
                 {error}
               </div>
             )}
-
             <div>
               <label className="label">Username</label>
               <input
@@ -56,7 +54,6 @@ export default function LoginPage() {
                 required
               />
             </div>
-
             <div>
               <label className="label">Password</label>
               <div className="relative">
@@ -78,7 +75,6 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
-
             <button
               type="submit"
               disabled={submitting || !username || !password}
@@ -90,7 +86,6 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-
         <p className="text-center text-xs text-slate-600 mt-6">
           Smart Task Manager — Internal Platform
         </p>

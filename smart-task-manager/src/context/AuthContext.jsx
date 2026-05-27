@@ -36,8 +36,8 @@ export function AuthProvider({ children }) {
   const login = async (username, password) => {
     setError(null);
     try {
-      const res = await authAPI.login(username, password);
-      const { token, user: userData } = res.data;
+     const res = await authAPI.login(username, password);
+     const { token, user: userData } = res.data ?? res;  // handles both cases
 
       if (!token || !userData) {
         setError('Login failed. Please try again.');
