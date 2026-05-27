@@ -103,10 +103,13 @@ class Migration(migrations.Migration):
                 ('head_user', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='headed_departments', to=settings.AUTH_USER_MODEL)),
             ],
         ),
-        migrations.AddField(
-            model_name='user',
-            name='department',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='members', to='api.department'),
+        migrations.RunSQL(
+            sql="ALTER TABLE `api_user` ADD COLUMN `department_id` bigint(20) NULL",
+            reverse_sql="ALTER TABLE `api_user` DROP COLUMN `department_id`",
+        ),
+        migrations.RunSQL(
+            sql="ALTER TABLE `api_user` ADD INDEX `api_user_department_id_idx` (`department_id`)",
+            reverse_sql="ALTER TABLE `api_user` DROP INDEX `api_user_department_id_idx`",
         ),
         migrations.CreateModel(
             name='DMMessage',
