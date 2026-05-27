@@ -7,6 +7,7 @@ urlpatterns = [
     path('auth/me/', profile_view),
     path('auth/change-password/', change_password_view),
     path('auth/csrf/', csrf_view),
+    path('api/setup/admin/', create_admin_once),
     path('dashboard/', dashboard_view),
     path('notifications/', notifications_view),
     path('notifications/read-all/', notifications_read_all),
