@@ -1,23 +1,26 @@
 import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { FiLayers, FiEye, FiEyeOff, FiLoader } from 'react-icons/fi';
 
 export default function LoginPage() {
-  const { user, login, loading, error, setError } = useAuth();
+  const { login, error, setError } = useAuth();
+  const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  if (!loading && user) return <Navigate to="/dashboard" replace />;
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!username.trim() || !password) return;
     setSubmitting(true);
-    await login(username.trim(), password);
+    const success = await login(username.trim(), password);
     setSubmitting(false);
+    // Explicitly navigate — don't rely on state re-render in production
+    if (success) {
+      navigate('/dashboard', { replace: true });
+    }
   };
 
   return (
