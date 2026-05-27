@@ -8,12 +8,11 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach token on every request
-// Uses "Token" prefix — standard for Django REST Framework TokenAuthentication
+// Your Django backend uses custom HMAC tokens with "Bearer" prefix
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('auth_token');
   if (token) {
-    config.headers['Authorization'] = `Token ${token}`;
+    config.headers['Authorization'] = `Bearer ${token}`;
   }
   return config;
 });
