@@ -95,7 +95,7 @@ export function SettingsPage() {
   const { user } = useAuth();
   const { addToast } = useApp();
   const [saving, setSaving] = useState(false);
-  const [pwForm, setPwForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
+  const [pwForm, setPwForm] = useState({ old_password: '', new_password: '', confirm_password: '' }); // ✅ fixed: old_password
   const [notifSettings, setNotifSettings] = useState({
     email_on_task_assign: true,
     email_on_comment: true,
@@ -108,20 +108,25 @@ export function SettingsPage() {
       addToast('Passwords do not match', 'error');
       return;
     }
-    if (pwForm.new_password.length < 8) {
-      addToast('Password must be at least 8 characters', 'error');
+    if (pwForm.new_password.length < 4) {
+      addToast('Password must be at least 4 characters', 'error');
       return;
     }
     setSaving(true);
     try {
       await authAPI.updatePassword({
-        current_password: pwForm.current_password,
+        old_password: pwForm.old_password,   // ✅ fixed: was current_password, backend expects old_password
         new_password: pwForm.new_password,
       });
-      addToast('Password updated');
-      setPwForm({ current_password: '', new_password: '', confirm_password: '' });
+      addToast('Password updated successfully');
+      setPwForm({ old_password: '', new_password: '', confirm_password: '' });
     } catch (err) {
-      addToast(err.response?.data?.detail || 'Failed to update password', 'error');
+      addToast(
+        err.response?.data?.error ||
+        err.response?.data?.detail ||
+        'Failed to update password',
+        'error'
+      );
     } finally {
       setSaving(false);
     }
@@ -139,13 +144,13 @@ export function SettingsPage() {
         <form onSubmit={handlePasswordChange} className="space-y-4">
           <div>
             <label className="label">Current Password</label>
-            <input className="input" type="password" value={pwForm.current_password}
-              onChange={e => setPwForm(p => ({ ...p, current_password: e.target.value }))} required />
+            <input className="input" type="password" value={pwForm.old_password}
+              onChange={e => setPwForm(p => ({ ...p, old_password: e.target.value }))} required />
           </div>
           <div>
             <label className="label">New Password</label>
             <input className="input" type="password" value={pwForm.new_password}
-              onChange={e => setPwForm(p => ({ ...p, new_password: e.target.value }))} required minLength={8} />
+              onChange={e => setPwForm(p => ({ ...p, new_password: e.target.value }))} required minLength={4} />
           </div>
           <div>
             <label className="label">Confirm New Password</label>

@@ -14,6 +14,8 @@ export const usersAPI = {
     api.patch(`/api/users/${id}/`, { role }),
   updatePermissions: (id, permissions) =>
     api.patch(`/api/users/${id}/`, { permissions }),
+  changePassword: (id, data) =>
+    api.post(`/api/users/${id}/change-password/`, data),  // ✅ NEW
 };
 
 export const rolesAPI = {

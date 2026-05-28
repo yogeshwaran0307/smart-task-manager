@@ -6,7 +6,7 @@ import { PageLoading, PageHeader, Avatar } from '../common/ui';
 import {
   FiUsers, FiPlus, FiSearch, FiEdit2, FiTrash2,
   FiToggleLeft, FiToggleRight, FiX, FiSave, FiShield,
-  FiChevronDown, FiCheck,
+  FiChevronDown, FiCheck, FiLock,  // ✅ added FiLock
 } from 'react-icons/fi';
 
 const SYSTEM_ROLES = ['admin', 'manager', 'head_of_department', 'senior', 'junior', 'employee'];
@@ -212,7 +212,7 @@ function UserModal({ title, editForm, setEditForm, departments, rolesList, isEdi
   const isCustomRole = editForm.role && !SYSTEM_ROLES.includes(editForm.role.toLowerCase());
 
   const togglePerm = (key) => {
-    if (rolePerms.includes(key)) return; // role-granted perms are read-only
+    if (rolePerms.includes(key)) return;
     setEditForm(prev => ({
       ...prev,
       permissions: prev.permissions.includes(key)
@@ -221,11 +221,9 @@ function UserModal({ title, editForm, setEditForm, departments, rolesList, isEdi
     }));
   };
 
-  // Single atomic update to avoid React batching race between role + permissions
   const handleRoleChange = (newRole) => {
     const newRolePerms = getRolePerms(newRole, rolesList);
     setEditForm(prev => {
-      // Strip any permissions already granted by the new role
       const filteredPerms = newRolePerms.length
         ? prev.permissions.filter(p => !newRolePerms.includes(p))
         : prev.permissions;
@@ -238,7 +236,6 @@ function UserModal({ title, editForm, setEditForm, departments, rolesList, isEdi
   return (
     <div className="fixed inset-0 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)', zIndex: 200 }}>
       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col" style={{ maxHeight: '90vh' }}>
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700 shrink-0">
           <h2 className="text-base font-bold text-white">{title}</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 transition-colors">
@@ -246,10 +243,7 @@ function UserModal({ title, editForm, setEditForm, departments, rolesList, isEdi
           </button>
         </div>
 
-        {/* Body — scrollable */}
         <div className="overflow-y-auto flex-1 p-6 space-y-5">
-
-          {/* Basic fields */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Username {!isEdit && '*'}</label>
@@ -285,7 +279,6 @@ function UserModal({ title, editForm, setEditForm, departments, rolesList, isEdi
               </div>
             )}
 
-            {/* Role dropdown — fixed positioning via ref */}
             <div>
               <label className="label">Role</label>
               <RoleSelect
@@ -295,7 +288,6 @@ function UserModal({ title, editForm, setEditForm, departments, rolesList, isEdi
               />
             </div>
 
-            {/* Department dropdown — fixed positioning via ref */}
             <div>
               <label className="label">Department</label>
               <DeptSelect
@@ -323,14 +315,12 @@ function UserModal({ title, editForm, setEditForm, departments, rolesList, isEdi
               onChange={e => setField('bio', e.target.value)} rows={2} />
           </div>
 
-          {/* Permissions */}
           <div>
             <div className="flex items-center gap-2 mb-3">
               <FiShield size={14} className="text-indigo-400" />
               <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Access Permissions</span>
             </div>
 
-            {/* Custom role — show which perms come bundled with the role */}
             {isCustomRole && rolePerms.length > 0 && (
               <div className="mb-3 p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/25">
                 <p className="text-xs font-semibold text-indigo-300 mb-2">
@@ -397,11 +387,82 @@ function UserModal({ title, editForm, setEditForm, departments, rolesList, isEdi
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex gap-3 justify-end px-6 py-4 border-t border-slate-700 shrink-0">
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" onClick={onSave} disabled={saving}>
             <FiSave size={14} /> {saving ? 'Saving…' : 'Save User'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ✅ NEW: Change Password Modal (admin only)
+function ChangePasswordModal({ user, onClose, onSuccess, addToast }) {
+  const [form, setForm] = useState({ new_password: '', confirm_password: '' });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!form.new_password) { addToast('Password is required', 'error'); return; }
+    if (form.new_password !== form.confirm_password) { addToast('Passwords do not match', 'error'); return; }
+    if (form.new_password.length < 4) { addToast('Password must be at least 4 characters', 'error'); return; }
+    setSaving(true);
+    try {
+      await usersAPI.changePassword(user.id, { new_password: form.new_password });
+      addToast(`Password updated for ${user.username}`);
+      onSuccess();
+    } catch (err) {
+      addToast(err.response?.data?.error || 'Failed to update password', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)', zIndex: 300 }}>
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <FiLock size={15} className="text-indigo-400" />
+            Change Password
+          </h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400">
+            <FiX size={16} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div className="px-3 py-2 rounded-lg bg-slate-700/50 text-sm text-slate-300">
+            Setting new password for <span className="text-white font-semibold">{user.username}</span>
+          </div>
+          <div>
+            <label className="label">New Password</label>
+            <input
+              className="input"
+              type="password"
+              value={form.new_password}
+              onChange={e => setForm(p => ({ ...p, new_password: e.target.value }))}
+              placeholder="Min. 4 characters"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="label">Confirm Password</label>
+            <input
+              className="input"
+              type="password"
+              value={form.confirm_password}
+              onChange={e => setForm(p => ({ ...p, confirm_password: e.target.value }))}
+              placeholder="Repeat new password"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3 justify-end px-6 py-4 border-t border-slate-700">
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            <FiSave size={14} /> {saving ? 'Updating…' : 'Update Password'}
           </button>
         </div>
       </div>
@@ -422,6 +483,7 @@ export default function UserManagement() {
   const [modalUser, setModalUser] = useState(null);
   const [editForm, setEditForm]   = useState({});
   const [saving, setSaving]       = useState(false);
+  const [pwUser, setPwUser]       = useState(null); // ✅ NEW: tracks which user's password to change
 
   const load = useCallback(() => {
     setLoading(true);
@@ -475,7 +537,6 @@ export default function UserManagement() {
     setSaving(true);
     try {
       const rolePerms = getRolePerms(editForm.role, rolesList);
-      // Only send extra (non-role) permissions to the backend
       const directOnly = (editForm.permissions || []).filter(p => !rolePerms.includes(p));
       const payload = { ...editForm, permissions: directOnly };
 
@@ -631,6 +692,14 @@ export default function UserManagement() {
                         >
                           <FiEdit2 size={14} />
                         </button>
+                        {/* ✅ NEW: Change Password button */}
+                        <button
+                          onClick={() => setPwUser(u)}
+                          className="p-1.5 rounded-lg hover:bg-indigo-900/40 text-slate-400 hover:text-indigo-400"
+                          title="Change Password"
+                        >
+                          <FiLock size={14} />
+                        </button>
                         <button
                           onClick={() => handleToggleActive(u)}
                           className={`p-1.5 rounded-lg transition-colors ${
@@ -673,6 +742,16 @@ export default function UserManagement() {
           saving={saving}
           onClose={() => setModalUser(null)}
           onSave={handleSave}
+        />
+      )}
+
+      {/* ✅ NEW: Change Password Modal */}
+      {pwUser && (
+        <ChangePasswordModal
+          user={pwUser}
+          onClose={() => setPwUser(null)}
+          onSuccess={() => setPwUser(null)}
+          addToast={addToast}
         />
       )}
     </div>
