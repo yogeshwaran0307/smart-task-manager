@@ -6,6 +6,7 @@ urlpatterns = [
     path('auth/logout/', logout_view),
     path('auth/me/', profile_view),
     path('auth/change-password/', change_password_view),
+    path('users/<int:id>/change-password/', admin_change_password),
     path('auth/csrf/', csrf_view),
     path('dashboard/', dashboard_view),
     path('notifications/', notifications_view),

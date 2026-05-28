@@ -2442,3 +2442,25 @@ def extension_request_reject(request, id):
         user,
     )
     return JsonResponse(_serialize_extension_request(er))
+#password
+@csrf_exempt
+def admin_change_password(request, id):
+    admin = _get_session_user(request)
+    if not admin:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
+    if not (admin.is_superuser or getattr(admin, 'role', '') == 'admin'):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    
+    body = _json_body(request)
+    new_pw = body.get('new_password', '')
+    if len(new_pw) < 4:
+        return JsonResponse({'error': 'Password too short'}, status=400)
+    
+    try:
+        User = get_user_model()
+        user = User.objects.get(id=id)
+        user.set_password(new_pw)
+        user.save()
+        return JsonResponse({'success': True})
+    except User.DoesNotExist:
+        return JsonResponse({'error': 'User not found'}, status=404)
