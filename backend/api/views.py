@@ -2442,23 +2442,3 @@ def extension_request_reject(request, id):
         user,
     )
     return JsonResponse(_serialize_extension_request(er))
-#temporary admin
-@csrf_exempt
-def create_admin_once(request):
-    secret = request.GET.get('secret', '')
-    if secret != 'mysecretkey123':
-        return JsonResponse({'error': 'Forbidden'}, status=403)
-    
-    from django.contrib.auth import get_user_model
-    User = get_user_model()
-    
-    if User.objects.filter(username='superadmin').exists():
-        return JsonResponse({'error': 'Already exists'})
-    
-    user = User.objects.create_user(username='superadmin', password='Admin123!')
-    user.is_superuser = True
-    user.is_staff = True
-    user.role = 'admin'
-    user.is_active = True
-    user.save()
-    return JsonResponse({'success': 'Admin created!'})
