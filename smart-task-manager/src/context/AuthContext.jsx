@@ -11,7 +11,7 @@ export function AuthProvider({ children }) {
   const justLoggedIn = useRef(false);
 
   const fetchProfile = useCallback(async () => {
-    const token = localStorage.getItem('auth_token');
+    const token = sessionStorage.getItem('auth_token');
     if (!token) {
       setLoading(false);
       return;
@@ -23,7 +23,7 @@ export function AuthProvider({ children }) {
       // Only clear user if login didn't just succeed (avoids race condition in prod)
       if (!justLoggedIn.current) {
         setUser(null);
-        localStorage.removeItem('auth_token');
+        sessionStorage.removeItem('auth_token');
       }
     } finally {
       setLoading(false);
@@ -45,7 +45,7 @@ export function AuthProvider({ children }) {
       }
 
       justLoggedIn.current = true;
-      localStorage.setItem('auth_token', token);
+      sessionStorage.setItem('auth_token', token); 
       setUser(userData);
 
       // Clear the flag after a short delay (enough for any in-flight fetchProfile to finish)
@@ -66,7 +66,7 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     try { await authAPI.logout(); } catch {}
     justLoggedIn.current = false;
-    localStorage.removeItem('auth_token');
+    sessionStorage.removeItem('auth_token');
     setUser(null);
   };
 
