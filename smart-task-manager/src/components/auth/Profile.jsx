@@ -9,6 +9,10 @@ export function ProfilePage() {
   const { user, updateUser } = useAuth();
   const { addToast } = useApp();
   const [saving, setSaving] = useState(false);
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwForm, setPwForm] = useState({
+    old_password: '', new_password: '', confirm_password: ''
+  });
   const [form, setForm] = useState({
     first_name: user?.first_name || '',
     last_name: user?.last_name || '',
@@ -31,6 +35,36 @@ export function ProfilePage() {
     }
   };
 
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    if (pwForm.new_password !== pwForm.confirm_password) {
+      addToast('Passwords do not match', 'error');
+      return;
+    }
+    if (pwForm.new_password.length < 4) {
+      addToast('Password must be at least 4 characters', 'error');
+      return;
+    }
+    setPwSaving(true);
+    try {
+      await authAPI.updatePassword({
+        old_password: pwForm.old_password,
+        new_password: pwForm.new_password,
+      });
+      addToast('Password updated successfully');
+      setPwForm({ old_password: '', new_password: '', confirm_password: '' });
+    } catch (err) {
+      addToast(
+        err.response?.data?.error ||
+        err.response?.data?.detail ||
+        'Failed to update password',
+        'error'
+      );
+    } finally {
+      setPwSaving(false);
+    }
+  };
+
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
   const roleLabel = {
@@ -39,9 +73,9 @@ export function ProfilePage() {
   }[user?.role] || user?.role || 'User';
 
   return (
-    <div className="max-w-xl mx-auto">
+    <div className="max-w-xl mx-auto space-y-6">
       <PageHeader title="My Profile" />
-      <div className="card p-6 mb-6">
+      <div className="card p-6">
         <div className="flex items-center gap-4 mb-6 pb-6 border-b border-slate-700">
           <div className="w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center text-2xl font-bold text-white">
             {(user?.first_name?.[0] || user?.username?.[0] || '?').toUpperCase()}
@@ -87,54 +121,6 @@ export function ProfilePage() {
           </div>
         </form>
       </div>
-    </div>
-  );
-}
-
-export function SettingsPage() {
-  const { user } = useAuth();
-  const { addToast } = useApp();
-  const [saving, setSaving] = useState(false);
-  const [pwForm, setPwForm] = useState({ old_password: '', new_password: '', confirm_password: '' }); // ✅ fixed: old_password
-  const [notifSettings, setNotifSettings] = useState({
-    email_on_task_assign: true,
-    email_on_comment: true,
-    email_on_approval: true,
-  });
-
-  const handlePasswordChange = async (e) => {
-    e.preventDefault();
-    if (pwForm.new_password !== pwForm.confirm_password) {
-      addToast('Passwords do not match', 'error');
-      return;
-    }
-    if (pwForm.new_password.length < 4) {
-      addToast('Password must be at least 4 characters', 'error');
-      return;
-    }
-    setSaving(true);
-    try {
-      await authAPI.updatePassword({
-        old_password: pwForm.old_password,   // ✅ fixed: was current_password, backend expects old_password
-        new_password: pwForm.new_password,
-      });
-      addToast('Password updated successfully');
-      setPwForm({ old_password: '', new_password: '', confirm_password: '' });
-    } catch (err) {
-      addToast(
-        err.response?.data?.error ||
-        err.response?.data?.detail ||
-        'Failed to update password',
-        'error'
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="max-w-xl mx-auto space-y-6">
-      <PageHeader title="Settings" />
 
       {/* Change Password */}
       <div className="card p-6">
@@ -157,11 +143,28 @@ export function SettingsPage() {
             <input className="input" type="password" value={pwForm.confirm_password}
               onChange={e => setPwForm(p => ({ ...p, confirm_password: e.target.value }))} required />
           </div>
-          <button type="submit" className="btn btn-primary" disabled={saving}>
-            <FiSave size={14} /> {saving ? 'Updating…' : 'Update Password'}
+          <button type="submit" className="btn btn-primary" disabled={pwSaving}>
+            <FiSave size={14} /> {pwSaving ? 'Updating…' : 'Update Password'}
           </button>
         </form>
       </div>
+    </div>
+  );
+}
+
+export function SettingsPage() {
+  const { user } = useAuth();
+  const { addToast } = useApp();
+  const [saving, setSaving] = useState(false);
+  const [notifSettings, setNotifSettings] = useState({
+    email_on_task_assign: true,
+    email_on_comment: true,
+    email_on_approval: true,
+  });
+
+  return (
+    <div className="max-w-xl mx-auto space-y-6">
+      <PageHeader title="Settings" />
 
       {/* Notifications */}
       <div className="card p-6">
