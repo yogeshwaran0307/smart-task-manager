@@ -2,6 +2,7 @@ import json, base64, hmac, hashlib, datetime, os, uuid
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
+from django.contrib.auth import get_user_model
 from .models import (
     User, Department, Role, Project, ProjectMember, Task,
     Subtask, Comment, Attachment, ActivityLog,
@@ -2457,10 +2458,11 @@ def admin_change_password(request, id):
         return JsonResponse({'error': 'Password too short'}, status=400)
     
     try:
+        from django.contrib.auth import get_user_model  # ✅ keep this too as fallback
         User = get_user_model()
         user = User.objects.get(id=id)
         user.set_password(new_pw)
         user.save()
         return JsonResponse({'success': True})
-    except User.DoesNotExist:
-        return JsonResponse({'error': 'User not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)  # ✅ shows real error
