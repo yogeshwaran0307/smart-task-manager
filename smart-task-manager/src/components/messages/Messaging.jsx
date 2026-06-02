@@ -140,7 +140,9 @@ export default function Messaging() {
       await messagesAPI.addChannelMember(selectedChannel.id, userId);
       const r = await messagesAPI.getChannel(selectedChannel.id);
       setChannelMembers(r.data?.members ?? []);
-      addToast('Member added');
+      const u = users.find(u => u.id === userId);
+      const name = u?.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u?.username ?? 'Member';
+      addToast(`${name} added to channel`);
     } catch { addToast('Failed to add member', 'error'); }
   };
 
@@ -149,7 +151,9 @@ export default function Messaging() {
       await messagesAPI.removeChannelMember(selectedChannel.id, userId);
       const r = await messagesAPI.getChannel(selectedChannel.id);
       setChannelMembers(r.data?.members ?? []);
-      addToast('Member removed');
+      const u = users.find(u => u.id === userId);
+      const name = u?.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u?.username ?? 'Member';
+      addToast(`${name} removed from channel`);
     } catch { addToast('Failed to remove member', 'error'); }
   };
 
@@ -244,7 +248,13 @@ export default function Messaging() {
                 <><div className="w-8 h-8 rounded-lg bg-indigo-600/20 flex items-center justify-center"><FiHash size={14} className="text-indigo-400" /></div>
                 <div><p className="text-sm font-semibold text-white">{selectedChannel?.name}</p></div>
                 {isChannelCreator && (
-                  <button onClick={() => setManageMembersModal(true)}
+                  <button onClick={async () => {
+                    try {
+                      const r = await messagesAPI.getChannel(selectedChannel.id);
+                      setChannelMembers(r.data?.members ?? []);
+                    } catch {}
+                    setManageMembersModal(true);
+                  }}
                     className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs transition-colors">
                     <FiUserPlus size={13} /> Manage Members
                   </button>
@@ -384,21 +394,26 @@ export default function Messaging() {
       {manageMembersModal && selectedChannel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm p-6">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-1">
               <h3 className="font-bold text-white">Manage Members — #{selectedChannel.name}</h3>
               <button onClick={() => setManageMembersModal(false)} className="text-slate-400 hover:text-white"><FiX size={16} /></button>
             </div>
+            <p className="text-xs text-slate-500 mb-4">{memberIds.length} member{memberIds.length !== 1 ? 's' : ''} in this channel</p>
             <div className="space-y-2 max-h-80 overflow-y-auto">
-              {users.map(u => {
+              {[...users, ...(users.find(u => u.id === user?.id) ? [] : [user])].map(u => {
                 const isMember = memberIds.includes(Number(u.id));
+                const isCreator = Number(u.id) === Number(createdById);
                 return (
                   <div key={u.id} className="flex items-center justify-between py-2 border-b border-slate-700">
                     <div className="flex items-center gap-2">
                       <Avatar user={u} size={7} />
                       <span className="text-sm text-white">{u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username}</span>
-                      {isMember && <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">Member</span>}
+                      {isCreator && <span className="text-xs text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">Creator</span>}
+                      {isMember && !isCreator && <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">Member</span>}
                     </div>
-                    {isMember ? (
+                    {isCreator ? (
+                      <span className="text-xs text-slate-500 px-2">—</span>
+                    ) : isMember ? (
                       <button
                         onClick={() => handleRemoveMember(u.id)}
                         className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded-lg hover:bg-red-400/10 transition-colors">
