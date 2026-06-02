@@ -402,7 +402,7 @@ def login_view(request):
     password = body.get('password', '').strip()
     user = User.objects.filter(username=username, is_active=True).first()
     if not user or user.username != username or not user.check_password(password):
-        return JsonResponse({'error': 'Invalid credentials'}, status=400)
+       return JsonResponse({'error': 'Invalid credentials'}, status=400)
     token = _make_token(user.id)
     _add_activity(f"{user.display_name()} logged in", user)
     resp = JsonResponse({'token': token, 'user': _serialize_user(user)})
@@ -1779,7 +1779,9 @@ def users_list(request):
                 )
             else:
                 # No department: can only see themselves
-                qs = User.objects.select_related('department').filter(id=requesting_user.id)
+                qs = User.objects.select_related('department').filter(
+		     id=requesting_user.id
+                )
             result = []
             for u in qs:
                 if search_filter:
