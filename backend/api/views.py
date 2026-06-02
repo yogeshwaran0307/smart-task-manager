@@ -401,7 +401,7 @@ def login_view(request):
     username = body.get('username', '').strip()
     password = body.get('password', '').strip()
     user = User.objects.filter(username=username, is_active=True).first()
-    if not user or not user.check_password(password):
+    if not user or user.username != username or not user.check_password(password):
         return JsonResponse({'error': 'Invalid credentials'}, status=400)
     token = _make_token(user.id)
     _add_activity(f"{user.display_name()} logged in", user)
