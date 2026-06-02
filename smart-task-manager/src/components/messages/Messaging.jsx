@@ -172,7 +172,13 @@ export default function Messaging() {
     ? (selectedUser?.first_name ? `${selectedUser.first_name} ${selectedUser.last_name || ''}`.trim() : selectedUser?.username)
     : `# ${selectedChannel?.name}`;
 
-  const memberIds = channelMembers.map(m => m.id ?? m);
+  // Robust member ID extraction — handles all shapes: number, {id}, {user:{id}}, {user_id}
+  const getMemberId = (m) => {
+    if (typeof m === 'number') return m;
+    if (typeof m === 'string') return Number(m);
+    return Number(m?.id ?? m?.user?.id ?? m?.user_id ?? -1);
+  };
+  const memberIds = channelMembers.map(getMemberId);
 
   return (
     <div className="h-[calc(100vh-7rem)] flex gap-4">
@@ -267,7 +273,10 @@ export default function Messaging() {
                             className="input text-sm px-3 py-1.5"
                             value={editingContent}
                             onChange={e => setEditingContent(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') handleEditMsg(msg.id); if (e.key === 'Escape') { setEditingMsgId(null); setEditingContent(''); } }}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') handleEditMsg(msg.id);
+                              if (e.key === 'Escape') { setEditingMsgId(null); setEditingContent(''); }
+                            }}
                             autoFocus
                           />
                           <button onClick={() => handleEditMsg(msg.id)} className="text-emerald-400 hover:text-emerald-300"><FiCheck size={15} /></button>
@@ -275,24 +284,42 @@ export default function Messaging() {
                         </div>
                       ) : (
                         <div className="relative">
+                          {isOwn && (
+                            <div
+                              className="absolute -top-8 right-0 hidden group-hover:flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg px-1.5 py-1 shadow-lg z-10"
+                              onMouseDown={e => e.preventDefault()}
+                            >
+                              <button
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setEditingMsgId(msg.id);
+                                  setEditingContent(msg.content);
+                                }}
+                                className="text-slate-400 hover:text-white p-0.5"
+                                title="Edit"
+                              >
+                                <FiEdit2 size={12} />
+                              </button>
+                              <button
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleDeleteMsg(msg.id);
+                                }}
+                                className="text-slate-400 hover:text-red-400 p-0.5"
+                                title="Delete"
+                              >
+                                <FiTrash2 size={12} />
+                              </button>
+                            </div>
+                          )}
                           <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
                             isOwn ? 'bg-indigo-600 text-white rounded-br-sm' : 'bg-slate-700 text-slate-200 rounded-bl-sm'
                           }`}>
                             {msg.content}
                             {msg.edited && <span className="text-xs opacity-60 ml-2">(edited)</span>}
                           </div>
-                          {isOwn && (
-                            <div className="absolute -top-7 right-0 hidden group-hover:flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg px-1.5 py-1 shadow-lg">
-                              <button onClick={() => { setEditingMsgId(msg.id); setEditingContent(msg.content); }}
-                                className="text-slate-400 hover:text-white p-0.5" title="Edit">
-                                <FiEdit2 size={12} />
-                              </button>
-                              <button onClick={() => handleDeleteMsg(msg.id)}
-                                className="text-slate-400 hover:text-red-400 p-0.5" title="Delete">
-                                <FiTrash2 size={12} />
-                              </button>
-                            </div>
-                          )}
                         </div>
                       )}
                       <span className="text-xs text-slate-600 mt-1 mx-1">
@@ -358,7 +385,7 @@ export default function Messaging() {
             </div>
             <div className="space-y-2 max-h-80 overflow-y-auto">
               {users.map(u => {
-                const isMember = memberIds.includes(u.id);
+                const isMember = memberIds.includes(Number(u.id));
                 return (
                   <div key={u.id} className="flex items-center justify-between py-2 border-b border-slate-700">
                     <div className="flex items-center gap-2">
@@ -367,12 +394,14 @@ export default function Messaging() {
                       {isMember && <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">Member</span>}
                     </div>
                     {isMember ? (
-                      <button onClick={() => handleRemoveMember(u.id)}
+                      <button
+                        onClick={() => handleRemoveMember(u.id)}
                         className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded-lg hover:bg-red-400/10 transition-colors">
                         <FiUserMinus size={12} /> Remove
                       </button>
                     ) : (
-                      <button onClick={() => handleAddMember(u.id)}
+                      <button
+                        onClick={() => handleAddMember(u.id)}
                         className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 px-2 py-1 rounded-lg hover:bg-indigo-400/10 transition-colors">
                         <FiUserPlus size={12} /> Add
                       </button>
