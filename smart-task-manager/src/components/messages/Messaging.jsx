@@ -24,6 +24,7 @@ export default function Messaging() {
   const [editingContent, setEditingContent] = useState('');
   const [manageMembersModal, setManageMembersModal] = useState(false);
   const [channelMembers, setChannelMembers] = useState([]);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const messagesEndRef = useRef(null);
   const pollRef = useRef(null);
 
@@ -102,7 +103,6 @@ export default function Messaging() {
   };
 
   const handleDeleteMsg = async (msgId) => {
-    if (!window.confirm('Delete this message?')) return;
     try {
       if (activeView === 'dm') {
         await messagesAPI.deleteDM(msgId);
@@ -113,6 +113,7 @@ export default function Messaging() {
         const r = await messagesAPI.getChannel(selectedChannel.id);
         setMessages(r.data?.messages ?? []);
       }
+      setConfirmDeleteId(null);
       addToast('Message deleted');
     } catch { addToast('Failed to delete message', 'error'); }
   };
@@ -166,7 +167,12 @@ export default function Messaging() {
     } catch { addToast('Failed to create channel', 'error'); }
   };
 
-  const isChannelCreator = selectedChannel && selectedChannel.created_by === user?.id;
+  // Handle created_by as either a number or an object {id: ...}
+  const isChannelCreator = selectedChannel && (
+    (typeof selectedChannel.created_by === 'object'
+      ? selectedChannel.created_by?.id
+      : selectedChannel.created_by) === user?.id
+  );
 
   const currentName = activeView === 'dm'
     ? (selectedUser?.first_name ? `${selectedUser.first_name} ${selectedUser.last_name || ''}`.trim() : selectedUser?.username)
@@ -289,29 +295,45 @@ export default function Messaging() {
                               className="absolute -top-8 right-0 hidden group-hover:flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg px-1.5 py-1 shadow-lg z-10"
                               onMouseDown={e => e.preventDefault()}
                             >
-                              <button
-                                onMouseDown={e => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setEditingMsgId(msg.id);
-                                  setEditingContent(msg.content);
-                                }}
-                                className="text-slate-400 hover:text-white p-0.5"
-                                title="Edit"
-                              >
-                                <FiEdit2 size={12} />
-                              </button>
-                              <button
-                                onMouseDown={e => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  handleDeleteMsg(msg.id);
-                                }}
-                                className="text-slate-400 hover:text-red-400 p-0.5"
-                                title="Delete"
-                              >
-                                <FiTrash2 size={12} />
-                              </button>
+                              {confirmDeleteId === msg.id ? (
+                                <>
+                                  <span className="text-xs text-slate-300 px-1">Delete?</span>
+                                  <button
+                                    onMouseDown={e => { e.preventDefault(); e.stopPropagation(); handleDeleteMsg(msg.id); }}
+                                    className="text-xs text-red-400 hover:text-red-300 px-1"
+                                  >Yes</button>
+                                  <button
+                                    onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(null); }}
+                                    className="text-xs text-slate-400 hover:text-white px-1"
+                                  >No</button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onMouseDown={e => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setEditingMsgId(msg.id);
+                                      setEditingContent(msg.content);
+                                    }}
+                                    className="text-slate-400 hover:text-white p-0.5"
+                                    title="Edit"
+                                  >
+                                    <FiEdit2 size={12} />
+                                  </button>
+                                  <button
+                                    onMouseDown={e => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setConfirmDeleteId(msg.id);
+                                    }}
+                                    className="text-slate-400 hover:text-red-400 p-0.5"
+                                    title="Delete"
+                                  >
+                                    <FiTrash2 size={12} />
+                                  </button>
+                                </>
+                              )}
                             </div>
                           )}
                           <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
