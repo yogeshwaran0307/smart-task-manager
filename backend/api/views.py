@@ -1745,8 +1745,10 @@ def users_workload(request):
 @csrf_exempt
 def users_list(request):
     requesting_user = _get_session_user(request)
+
     if request.method == 'GET':
-        # Only admin/manager or users with view_all_users permission can list all users
+
+        # Admins/managers
         if requesting_user and (
             _is_manager(requesting_user) or
             _has_extra_permission(requesting_user, 'view_all_users')
@@ -1754,60 +1756,72 @@ def users_list(request):
             dept_filter = request.GET.get('department')
             role_filter = (request.GET.get('role') or '').lower().strip()
             search_filter = (request.GET.get('search') or '').lower().strip()
+
             qs = User.objects.select_related('department').all()
+
             if dept_filter:
                 qs = qs.filter(department_id=dept_filter)
+
             if role_filter:
                 qs = qs.filter(role=role_filter)
+
             result = []
+
             for u in qs:
                 if search_filter:
                     haystack = f"{u.username} {u.first_name} {u.last_name} {u.email}".lower()
                     if search_filter not in haystack:
                         continue
+
                 result.append(_serialize_user(u))
+
             return JsonResponse(result, safe=False)
+
+        # All other logged-in users
         else:
-            # Non-privileged users only see themselves + teammates in same department
             if not requesting_user:
                 return JsonResponse([], safe=False)
+
             search_filter = (request.GET.get('search') or '').lower().strip()
-            # Build queryset: only the current user OR users in same department
-            if requesting_user.department_id:
-                qs = User.objects.select_related('department').filter(
-                    department_id=requesting_user.department_id
-                )
-            else:
-                # No department: can only see themselves
-                qs = User.objects.select_related('department').filter(
-		     id=requesting_user.id
-                )
+
+            qs = User.objects.select_related('department').all()
+
             result = []
+
             for u in qs:
                 if search_filter:
                     haystack = f"{u.username} {u.first_name} {u.last_name} {u.email}".lower()
                     if search_filter not in haystack:
                         continue
+
                 result.append(_serialize_user(u))
+
             return JsonResponse(result, safe=False)
+
     if request.method == 'POST':
-        # Only admin or manager can create users
         if not requesting_user:
             return JsonResponse({'detail': 'Unauthenticated'}, status=401)
+
         if not _is_manager(requesting_user) and not _has_extra_permission(requesting_user, 'manage_users'):
             return JsonResponse({'detail': 'Only admin or manager can create users.'}, status=403)
+
         body = _json_body(request)
+
         if not body.get('username', '').strip():
             return JsonResponse({'detail': 'Username is required'}, status=400)
+
         if not body.get('password', '').strip():
             return JsonResponse({'detail': 'Password is required'}, status=400)
+
         if User.objects.filter(username=body['username'].strip()).exists():
             return JsonResponse({'detail': 'Username already exists'}, status=400)
+
         dept_id = body.get('department')
         user_role = body.get('role', 'employee')
-        # Strip any permissions already granted by the role to keep extra_permissions clean
+
         raw_perms = body.get('permissions', []) if isinstance(body.get('permissions'), list) else []
         clean_perms = _strip_role_perms(raw_perms, user_role)
+
         u = User.objects.create_user(
             username=body['username'].strip(),
             password=body['password'],
@@ -1821,7 +1835,9 @@ def users_list(request):
             bio=body.get('bio', ''),
             extra_permissions=clean_perms,
         )
+
         return JsonResponse(_serialize_user(u), status=201)
+
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 
 @csrf_exempt
