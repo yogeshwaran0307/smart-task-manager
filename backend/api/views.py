@@ -59,7 +59,7 @@ RESTRICTED_ROLES = ('junior', 'employee')
 def _user_role(user):
     return (user.role or '').lower() if user else ''
 
-def _is_admin(user): return _user_role(user) == 'admin
+def _is_admin(user): return _user_role(user) == 'admin'
 def _is_manager(user): return _user_role(user) in ('admin', 'manager')
 def _is_hod(user): return _user_role(user) == 'head_of_department'
 
