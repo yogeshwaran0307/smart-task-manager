@@ -189,6 +189,7 @@ export default function Messaging() {
               ) : messages.length === 0 ? (
                 <div className="text-center text-slate-500 text-sm py-12">No messages yet. Start the conversation!</div>
               ) : messages.map((msg, i) => {
+                onsole.log("Message timestamp:", msg.created_at);
                 const isOwn = (msg.sender?.id ?? msg.sender_id) === user?.id;
                 const prevMsg = messages[i - 1];
                 const sameAuthor = prevMsg && (prevMsg.sender?.id ?? prevMsg.sender_id) === (msg.sender?.id ?? msg.sender_id);
@@ -206,7 +207,7 @@ export default function Messaging() {
                         {msg.content}
                       </div>
                       <span className="text-xs text-slate-600 mt-1 mx-1">
-                        {msg.created_at ? new Date(msg.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : ''}
+                        {msg.created_at ? new Date(msg.created_at * 1000).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
                       </span>
                     </div>
                   </div>
