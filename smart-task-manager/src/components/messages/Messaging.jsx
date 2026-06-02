@@ -22,9 +22,9 @@ export default function Messaging() {
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [editingMsgId, setEditingMsgId] = useState(null);
   const [editingContent, setEditingContent] = useState('');
+  const [hoveredMsgId, setHoveredMsgId] = useState(null);
   const [manageMembersModal, setManageMembersModal] = useState(false);
   const [channelMembers, setChannelMembers] = useState([]);
-  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const messagesEndRef = useRef(null);
   const pollRef = useRef(null);
 
@@ -113,7 +113,6 @@ export default function Messaging() {
         const r = await messagesAPI.getChannel(selectedChannel.id);
         setMessages(r.data?.messages ?? []);
       }
-      setConfirmDeleteId(null);
       addToast('Message deleted');
     } catch { addToast('Failed to delete message', 'error'); }
   };
@@ -167,12 +166,11 @@ export default function Messaging() {
     } catch { addToast('Failed to create channel', 'error'); }
   };
 
-  // Handle created_by as either a number or an object {id: ...}
-  const isChannelCreator = selectedChannel && (
-    (typeof selectedChannel.created_by === 'object'
-      ? selectedChannel.created_by?.id
-      : selectedChannel.created_by) === user?.id
-  );
+  // created_by can be a plain number OR an object {id, username}
+  const createdById = typeof selectedChannel?.created_by === 'object'
+    ? selectedChannel?.created_by?.id
+    : selectedChannel?.created_by;
+  const isChannelCreator = !!selectedChannel && Number(createdById) === Number(user?.id);
 
   const currentName = activeView === 'dm'
     ? (selectedUser?.first_name ? `${selectedUser.first_name} ${selectedUser.last_name || ''}`.trim() : selectedUser?.username)
@@ -266,7 +264,7 @@ export default function Messaging() {
                 const sameAuthor = prevMsg && (prevMsg.sender?.id ?? prevMsg.sender_id) === (msg.sender?.id ?? msg.sender_id);
                 const isEditing = editingMsgId === msg.id;
                 return (
-                  <div key={msg.id} className={`flex items-end gap-2.5 group ${isOwn ? 'flex-row-reverse' : ''}`}>
+                  <div key={msg.id} className={`flex items-end gap-2.5 ${isOwn ? 'flex-row-reverse' : ''}`}>
                     {!sameAuthor && !isOwn && <Avatar user={msg.sender} size={7} />}
                     {sameAuthor && !isOwn && <div className="w-7 flex-shrink-0" />}
                     <div className={`max-w-xs lg:max-w-md ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
@@ -289,51 +287,36 @@ export default function Messaging() {
                           <button onClick={() => { setEditingMsgId(null); setEditingContent(''); }} className="text-slate-500 hover:text-slate-300"><FiX size={15} /></button>
                         </div>
                       ) : (
-                        <div className="relative">
-                          {isOwn && (
-                            <div
-                              className="absolute -top-8 right-0 hidden group-hover:flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg px-1.5 py-1 shadow-lg z-10"
-                              onMouseDown={e => e.preventDefault()}
-                            >
-                              {confirmDeleteId === msg.id ? (
-                                <>
-                                  <span className="text-xs text-slate-300 px-1">Delete?</span>
-                                  <button
-                                    onMouseDown={e => { e.preventDefault(); e.stopPropagation(); handleDeleteMsg(msg.id); }}
-                                    className="text-xs text-red-400 hover:text-red-300 px-1"
-                                  >Yes</button>
-                                  <button
-                                    onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(null); }}
-                                    className="text-xs text-slate-400 hover:text-white px-1"
-                                  >No</button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    onMouseDown={e => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      setEditingMsgId(msg.id);
-                                      setEditingContent(msg.content);
-                                    }}
-                                    className="text-slate-400 hover:text-white p-0.5"
-                                    title="Edit"
-                                  >
-                                    <FiEdit2 size={12} />
-                                  </button>
-                                  <button
-                                    onMouseDown={e => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      setConfirmDeleteId(msg.id);
-                                    }}
-                                    className="text-slate-400 hover:text-red-400 p-0.5"
-                                    title="Delete"
-                                  >
-                                    <FiTrash2 size={12} />
-                                  </button>
-                                </>
-                              )}
+                        <div
+                          className="relative pt-8 -mt-8"
+                          onMouseEnter={() => isOwn && setHoveredMsgId(msg.id)}
+                          onMouseLeave={() => setHoveredMsgId(null)}
+                        >
+                          {isOwn && hoveredMsgId === msg.id && (
+                            <div className="absolute top-0 right-0 flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg px-1.5 py-1 shadow-lg z-10">
+                              <button
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  setEditingMsgId(msg.id);
+                                  setEditingContent(msg.content);
+                                  setHoveredMsgId(null);
+                                }}
+                                className="text-slate-400 hover:text-white p-0.5"
+                                title="Edit"
+                              >
+                                <FiEdit2 size={12} />
+                              </button>
+                              <button
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  handleDeleteMsg(msg.id);
+                                  setHoveredMsgId(null);
+                                }}
+                                className="text-slate-400 hover:text-red-400 p-0.5"
+                                title="Delete"
+                              >
+                                <FiTrash2 size={12} />
+                              </button>
                             </div>
                           )}
                           <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
