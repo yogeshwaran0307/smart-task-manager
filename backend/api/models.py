@@ -226,6 +226,12 @@ class Channel(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_channels')
     created_at = models.DateTimeField(auto_now_add=True)
 
+class ChannelMember(models.Model):
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = ('channel', 'user')
 
 class ChannelMessage(models.Model):
     channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name='channel_msgs')

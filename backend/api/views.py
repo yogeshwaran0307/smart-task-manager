@@ -1,4 +1,5 @@
 import json, base64, hmac, hashlib, datetime, os, uuid
+from .models import ChannelMember
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
@@ -58,7 +59,7 @@ RESTRICTED_ROLES = ('junior', 'employee')
 def _user_role(user):
     return (user.role or '').lower() if user else ''
 
-def _is_admin(user): return _user_role(user) == 'admin'
+def _is_admin(user): return _user_role(user) == 'admin
 def _is_manager(user): return _user_role(user) in ('admin', 'manager')
 def _is_hod(user): return _user_role(user) == 'head_of_department'
 
@@ -2076,45 +2077,140 @@ def dm_conversation(request, user_id):
 @csrf_exempt
 def channels_list(request):
     user = _get_session_user(request)
+
     if not user:
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
+
     if request.method == 'GET':
-        return JsonResponse([{'id': c.id, 'name': c.name, 'created_by': c.created_by_id,
-                               'created_at': c.created_at.timestamp()} for c in Channel.objects.all()], safe=False)
+        channels = Channel.objects.filter(
+            channelmember__user=user
+        ).distinct()
+
+        return JsonResponse([
+            {
+                'id': c.id,
+                'name': c.name,
+                'created_by': c.created_by_id,
+                'created_at': c.created_at.timestamp()
+            }
+            for c in channels
+        ], safe=False)
+
     if request.method == 'POST':
         body = _json_body(request)
+
         name = (body.get('name') or '').strip()
+
         if not name:
             return JsonResponse({'error': 'Name required'}, status=400)
-        ch = Channel.objects.create(name=name, created_by=user)
-        return JsonResponse({'id': ch.id, 'name': ch.name, 'created_by': ch.created_by_id,
-                              'created_at': ch.created_at.timestamp()}, status=201)
-    return JsonResponse({'error': 'Method not allowed'}, status=405)
 
+        member_ids = body.get('members', [])
+
+        ch = Channel.objects.create(
+            name=name,
+            created_by=user
+        )
+
+        # Creator is automatically a member
+        ChannelMember.objects.create(
+            channel=ch,
+            user=user
+        )
+
+        for user_id in member_ids:
+            member = User.objects.filter(id=user_id).first()
+
+            if member:
+                ChannelMember.objects.get_or_create(
+                    channel=ch,
+                    user=member
+                )
+
+        return JsonResponse({
+            'id': ch.id,
+            'name': ch.name,
+            'created_by': ch.created_by_id,
+            'created_at': ch.created_at.timestamp()
+        }, status=201)
+
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
 @csrf_exempt
 def channel_detail(request, channel_id):
     user = _get_session_user(request)
+
     if not user:
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
+
     ch = Channel.objects.filter(id=int(channel_id)).first()
+
     if not ch:
         return JsonResponse({'error': 'Channel not found'}, status=404)
+
+    is_member = ChannelMember.objects.filter(
+        channel=ch,
+        user=user
+    ).exists()
+
+    if not is_member:
+        return JsonResponse(
+            {'error': 'You are not a member of this channel'},
+            status=403
+        )
+
     if request.method == 'GET':
-        msgs = ChannelMessage.objects.filter(channel=ch).select_related('sender').order_by('created_at')
-        messages_data = [{'id': m.id, 'channel_id': ch.id, 'sender_id': m.sender_id,
-                          'content': m.content, 'created_at': m.created_at.timestamp(),
-                          'sender': _serialize_user(m.sender)} for m in msgs]
-        return JsonResponse({'id': ch.id, 'name': ch.name, 'created_by': ch.created_by_id,
-                              'created_at': ch.created_at.timestamp(), 'messages': messages_data})
+        msgs = (
+            ChannelMessage.objects
+            .filter(channel=ch)
+            .select_related('sender')
+            .order_by('created_at')
+        )
+
+        messages_data = [
+            {
+                'id': m.id,
+                'channel_id': ch.id,
+                'sender_id': m.sender_id,
+                'content': m.content,
+                'created_at': m.created_at.timestamp(),
+                'sender': _serialize_user(m.sender)
+            }
+            for m in msgs
+        ]
+
+        return JsonResponse({
+            'id': ch.id,
+            'name': ch.name,
+            'created_by': ch.created_by_id,
+            'created_at': ch.created_at.timestamp(),
+            'messages': messages_data
+        })
+
     if request.method == 'POST':
         body = _json_body(request)
+
         content = (body.get('content') or '').strip()
+
         if not content:
-            return JsonResponse({'error': 'Content required'}, status=400)
-        m = ChannelMessage.objects.create(channel=ch, sender=user, content=content)
-        return JsonResponse({'id': m.id, 'channel_id': ch.id, 'sender_id': m.sender_id,
-                              'content': m.content, 'created_at': m.created_at.timestamp(),
-                              'sender': _serialize_user(user)}, status=201)
+            return JsonResponse(
+                {'error': 'Content required'},
+                status=400
+            )
+
+        m = ChannelMessage.objects.create(
+            channel=ch,
+            sender=user,
+            content=content
+        )
+
+        return JsonResponse({
+            'id': m.id,
+            'channel_id': ch.id,
+            'sender_id': m.sender_id,
+            'content': m.content,
+            'created_at': m.created_at.timestamp(),
+            'sender': _serialize_user(user)
+        }, status=201)
+
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 
 # ── DASHBOARD ──────────────────────────────────────────────────────────────────
@@ -2484,3 +2580,88 @@ def admin_change_password(request, id):
         return JsonResponse({'success': True})
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)  # ✅ shows real error
+@csrf_exempt
+def dm_message_detail(request, msg_id):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
+    msg = DMMessage.objects.filter(id=msg_id).first()
+    if not msg:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    if msg.sender_id != user.id:
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    if request.method == 'DELETE':
+        msg.delete()
+        return JsonResponse({'success': True})
+    if request.method == 'PATCH':
+        body = _json_body(request)
+        content = (body.get('content') or '').strip()
+        if not content:
+            return JsonResponse({'error': 'Content required'}, status=400)
+        msg.content = content
+        msg.save()
+        return JsonResponse({'success': True})
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+
+@csrf_exempt
+def channel_message_detail(request, msg_id):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
+    msg = ChannelMessage.objects.filter(id=msg_id).first()
+    if not msg:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    if msg.sender_id != user.id:
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    if request.method == 'DELETE':
+        msg.delete()
+        return JsonResponse({'success': True})
+    if request.method == 'PATCH':
+        body = _json_body(request)
+        content = (body.get('content') or '').strip()
+        if not content:
+            return JsonResponse({'error': 'Content required'}, status=400)
+        msg.content = content
+        msg.save()
+        return JsonResponse({'success': True})
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+
+@csrf_exempt
+def channel_members(request, channel_id):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
+    ch = Channel.objects.filter(id=channel_id).first()
+    if not ch:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    if ch.created_by_id != user.id:
+        return JsonResponse({'error': 'Only channel creator can manage members'}, status=403)
+    if request.method == 'POST':
+        body = _json_body(request)
+        uid = body.get('user_id')
+        if uid:
+            member = User.objects.filter(id=uid).first()
+            if member:
+                ChannelMember.objects.get_or_create(channel=ch, user=member)
+        members = [_serialize_user(cm.user) for cm in ChannelMember.objects.filter(channel=ch).select_related('user')]
+        return JsonResponse({'success': True, 'members': members})
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+
+@csrf_exempt
+def channel_member_detail(request, channel_id, user_id):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
+    ch = Channel.objects.filter(id=channel_id).first()
+    if not ch:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    if ch.created_by_id != user.id:
+        return JsonResponse({'error': 'Only channel creator can manage members'}, status=403)
+    if request.method == 'DELETE':
+        ChannelMember.objects.filter(channel=ch, user_id=user_id).delete()
+        members = [_serialize_user(cm.user) for cm in ChannelMember.objects.filter(channel=ch).select_related('user')]
+        return JsonResponse({'success': True, 'members': members})
+    return JsonResponse({'error': 'Method not allowed'}, status=405)

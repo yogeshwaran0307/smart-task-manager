@@ -56,6 +56,10 @@ urlpatterns = [
     path('messages/dm/<int:user_id>/', dm_conversation),
     path('messages/channels/', channels_list),
     path('messages/channels/<int:channel_id>/', channel_detail),
+    path('messages/dm/msg/<int:msg_id>/', dm_message_detail),
+    path('messages/channels/msg/<int:msg_id>/', channel_message_detail),
+    path('messages/channels/<int:channel_id>/members/', channel_members),
+    path('messages/channels/<int:channel_id>/members/<int:user_id>/', channel_member_detail),
     # Extension requests
     path('extension-requests/', extension_requests_list),
     path('extension-requests/create/', extension_request_create),
