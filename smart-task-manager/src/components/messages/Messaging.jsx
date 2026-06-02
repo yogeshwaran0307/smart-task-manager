@@ -189,7 +189,7 @@ export default function Messaging() {
               ) : messages.length === 0 ? (
                 <div className="text-center text-slate-500 text-sm py-12">No messages yet. Start the conversation!</div>
               ) : messages.map((msg, i) => {
-                onsole.log("Message timestamp:", msg.created_at);
+                console.log("Message timestamp:", msg.created_at);
                 const isOwn = (msg.sender?.id ?? msg.sender_id) === user?.id;
                 const prevMsg = messages[i - 1];
                 const sameAuthor = prevMsg && (prevMsg.sender?.id ?? prevMsg.sender_id) === (msg.sender?.id ?? msg.sender_id);
