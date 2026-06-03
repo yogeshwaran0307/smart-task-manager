@@ -72,7 +72,7 @@ function NotificationBell() {
         )}
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl z-50">
+        <div className="absolute right-0 top-full mt-2 w-80 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl z-[100]">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
             <span className="font-semibold text-white text-sm">Notifications</span>
             {unread > 0 && (
@@ -218,7 +218,7 @@ export default function Layout({ children }) {
       )}
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-14 bg-slate-800/80 border-b border-slate-700/50 flex items-center px-4 gap-3 shrink-0 backdrop-blur">
+        <header className="h-14 bg-slate-800/80 border-b border-slate-700/50 flex items-center px-4 gap-3 shrink-0 backdrop-blur relative z-30">
           <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-1.5 rounded-lg hover:bg-slate-700 text-slate-400">
             <FiMenu size={18} />
           </button>
@@ -236,7 +236,7 @@ export default function Layout({ children }) {
                 <FiChevronDown size={13} className="text-slate-400" />
               </button>
               {profileMenuOpen && (
-                <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50">
+                <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-[100]">
                   <div className="px-3 py-2 border-b border-slate-700">
                     <p className="text-sm font-medium text-white truncate">
                       {user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : user?.username}
