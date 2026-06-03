@@ -1484,15 +1484,20 @@ def task_attachments(request, id):
     t = Task.objects.filter(id=id).prefetch_related('departments').first()
     if not t:
         return JsonResponse({'error': 'Not found'}, status=404)
+
     if request.method == 'GET':
-        if not user or not _can_view_files_for_task(user, t):
+        if not user:
             return JsonResponse([], safe=False)
         atts = Attachment.objects.filter(task=t, deleted=False).prefetch_related('visible_to')
         result = []
+        can_view_all = _can_view_files_for_task(user, t)
         for a in atts:
+            # ✅ Show file if user can view all files OR user uploaded it themselves
+            if not can_view_all and a.uploaded_by_id != user.id:
+                continue
             visible_to_ids = list(a.visible_to.values_list('id', flat=True))
             role = _user_role(user)
-            if not visible_to_ids or role in ('admin', 'manager') or user.id in visible_to_ids:
+            if not visible_to_ids or role in ('admin', 'manager') or user.id in visible_to_ids or a.uploaded_by_id == user.id:
                 result.append({
                     'id': a.id, 'task_id': id, 'name': a.name,
                     'mime_type': a.mime_type, 'size': a.size,
@@ -1502,6 +1507,7 @@ def task_attachments(request, id):
                     'created_at': a.created_at.timestamp()
                 })
         return JsonResponse(result, safe=False)
+
     if request.method == 'POST':
         if not user:
             return JsonResponse({'error': 'Unauthenticated'}, status=401)
@@ -1536,8 +1542,8 @@ def task_attachments(request, id):
             'visible_to': visible_to_ids,
             'created_at': a.created_at.timestamp()
         }, status=201)
-    return JsonResponse({'error': 'Method not allowed'}, status=405)
 
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
 @csrf_exempt
 def attachment_download(request, id):
     user = _get_session_user(request)
@@ -1547,7 +1553,8 @@ def attachment_download(request, id):
     if not a:
         return JsonResponse({'error': 'Not found'}, status=404)
     t = Task.objects.filter(id=a.task_id).prefetch_related('departments').first()
-    if not t or not _can_view_files_for_task(user, t):
+    # ✅ Allow download if user can view all files OR they uploaded it themselves
+    if not t or (not _can_view_files_for_task(user, t) and a.uploaded_by_id != user.id):
         return JsonResponse({'error': 'Access denied'}, status=403)
     return JsonResponse({'data_b64': a.data_b64, 'name': a.name, 'mime_type': a.mime_type})
 
