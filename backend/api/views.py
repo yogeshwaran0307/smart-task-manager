@@ -1491,13 +1491,16 @@ def task_attachments(request, id):
         atts = Attachment.objects.filter(task=t, deleted=False).prefetch_related('visible_to')
         result = []
         can_view_all = _can_view_files_for_task(user, t)
+        role = _user_role(user)
         for a in atts:
-            # ✅ Show file if user can view all files OR user uploaded it themselves
-            if not can_view_all and a.uploaded_by_id != user.id:
-                continue
             visible_to_ids = list(a.visible_to.values_list('id', flat=True))
-            role = _user_role(user)
-            if not visible_to_ids or role in ('admin', 'manager') or user.id in visible_to_ids or a.uploaded_by_id == user.id:
+            can_see = (
+                role in ('admin', 'manager') or
+                a.uploaded_by_id == user.id or
+                (can_view_all and not visible_to_ids) or
+                user.id in visible_to_ids
+            )
+            if can_see:
                 result.append({
                     'id': a.id, 'task_id': id, 'name': a.name,
                     'mime_type': a.mime_type, 'size': a.size,
@@ -1544,6 +1547,8 @@ def task_attachments(request, id):
         }, status=201)
 
     return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+
 @csrf_exempt
 def attachment_download(request, id):
     user = _get_session_user(request)
@@ -1553,8 +1558,17 @@ def attachment_download(request, id):
     if not a:
         return JsonResponse({'error': 'Not found'}, status=404)
     t = Task.objects.filter(id=a.task_id).prefetch_related('departments').first()
-    # ✅ Allow download if user can view all files OR they uploaded it themselves
-    if not t or (not _can_view_files_for_task(user, t) and a.uploaded_by_id != user.id):
+    if not t:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    role = _user_role(user)
+    visible_to_ids = list(a.visible_to.values_list('id', flat=True))
+    can_download = (
+        role in ('admin', 'manager') or
+        a.uploaded_by_id == user.id or
+        (_can_view_files_for_task(user, t) and not visible_to_ids) or
+        user.id in visible_to_ids
+    )
+    if not can_download:
         return JsonResponse({'error': 'Access denied'}, status=403)
     return JsonResponse({'data_b64': a.data_b64, 'name': a.name, 'mime_type': a.mime_type})
 
