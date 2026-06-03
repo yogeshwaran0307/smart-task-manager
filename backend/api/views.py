@@ -2177,13 +2177,25 @@ def channel_detail(request, channel_id):
             for m in msgs
         ]
 
+        members_data = [
+            _serialize_user(cm.user)
+            for cm in ChannelMember.objects.filter(channel=ch).select_related('user')
+        ]
+
         return JsonResponse({
             'id': ch.id,
             'name': ch.name,
             'created_by': ch.created_by_id,
             'created_at': ch.created_at.timestamp(),
-            'messages': messages_data
+            'messages': messages_data,
+            'members': members_data,
         })
+
+    if request.method == 'DELETE':
+        if ch.created_by_id != user.id:
+            return JsonResponse({'error': 'Only the channel creator can delete this channel'}, status=403)
+        ch.delete()
+        return JsonResponse({'success': True})
 
     if request.method == 'POST':
         body = _json_body(request)
