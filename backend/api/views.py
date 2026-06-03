@@ -1522,7 +1522,19 @@ def task_attachments(request, id):
         file_data = body.get('file_data', '')
         file_name = body.get('file_name', 'file')
         mime_type = body.get('mime_type', 'application/octet-stream')
-        visible_to_ids = [int(v) for v in (body.get('visible_to') or []) if v]
+        visible_to_raw = body.get('visible_to') or []
+
+        # ✅ DEBUG — shows what frontend is sending
+        print(f"DEBUG visible_to_raw: {visible_to_raw}")
+
+        try:
+            visible_to_ids = [int(v) for v in visible_to_raw if v]
+        except Exception as e:
+            print(f"DEBUG visible_to parse error: {e}")
+            visible_to_ids = []
+
+        print(f"DEBUG visible_to_ids parsed: {visible_to_ids}")
+
         if not file_data:
             return JsonResponse({'error': 'No file data provided'}, status=400)
         try:
@@ -1530,19 +1542,26 @@ def task_attachments(request, id):
             size = len(base64.b64decode(raw_data))
         except Exception:
             return JsonResponse({'error': 'Invalid file data encoding'}, status=400)
+
         a = Attachment.objects.create(
             task=t, name=file_name, data_b64=file_data,
             mime_type=mime_type, size=size, uploaded_by=user
         )
         if visible_to_ids:
             a.visible_to.set(visible_to_ids)
+            a.refresh_from_db()
+
+        # ✅ DEBUG — shows what was actually saved to DB
+        saved_visible_to = list(a.visible_to.values_list('id', flat=True))
+        print(f"DEBUG saved visible_to in DB: {saved_visible_to}")
+
         _add_activity(f"File '{file_name}' uploaded to task '{t.title}' by {user.display_name()}", user)
         return JsonResponse({
             'id': a.id, 'task_id': id, 'name': a.name,
             'mime_type': a.mime_type, 'size': a.size,
             'uploaded_by': a.uploaded_by_id,
             'uploader_name': user.display_name(),
-            'visible_to': visible_to_ids,
+            'visible_to': saved_visible_to,
             'created_at': a.created_at.timestamp()
         }, status=201)
 
