@@ -25,9 +25,23 @@ function NotificationBell() {
   const [notifs, setNotifs] = useState([]);
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const removeTimers = useRef({});
 
   const load = () => {
-    notificationsAPI.list().then(r => setNotifs(r.data || [])).catch(() => {});
+    notificationsAPI.list().then(r => {
+      const all = r.data || [];
+      // Always show all unread first, then fill remaining slots with latest read ones
+      const unread = all.filter(n => !n.read);
+      const read = all.filter(n => n.read);
+      const combined = [...unread, ...read].slice(0, 4);
+      setNotifs(prev => {
+        // Keep any notifications that are pending removal (read but not yet faded out)
+        const pendingRemoval = prev.filter(n => n.read && removeTimers.current[n.id]);
+        const pendingIds = new Set(pendingRemoval.map(n => n.id));
+        const filtered = combined.filter(n => !pendingIds.has(n.id));
+        return [...pendingRemoval, ...filtered].slice(0, 4);
+      });
+    }).catch(() => {});
   };
 
   useEffect(() => {
@@ -42,18 +56,31 @@ function NotificationBell() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => Object.values(removeTimers.current).forEach(clearTimeout);
+  }, []);
+
   const unread = notifs.filter(n => !n.read).length;
+
+  const markRead = async (n) => {
+    if (n.read) return;
+    await notificationsAPI.markRead(n.id).catch(() => {});
+    // Mark as read in state
+    setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+    // Remove from list after 3 seconds
+    removeTimers.current[n.id] = setTimeout(() => {
+      setNotifs(prev => prev.filter(x => x.id !== n.id));
+      delete removeTimers.current[n.id];
+    }, 3000);
+  };
 
   const markAllRead = async () => {
     await notificationsAPI.markAllRead().catch(() => {});
     setNotifs(prev => prev.map(n => ({ ...n, read: true })));
-  };
-
-  const markRead = async (n) => {
-    if (!n.read) {
-      await notificationsAPI.markRead(n.id).catch(() => {});
-      setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
-    }
+    // Remove all after 3 seconds
+    const timer = setTimeout(() => setNotifs([]), 3000);
+    removeTimers.current['all'] = timer;
   };
 
   const typeIcon = { task: '📋', project: '📁', approval: '✅', info: '💬', reminder: '⏰' };
@@ -81,15 +108,17 @@ function NotificationBell() {
               </button>
             )}
           </div>
-          <div className="max-h-80 overflow-y-auto">
+          <div className="overflow-y-auto">
             {notifs.length === 0 ? (
-              <div className="py-8 text-center text-slate-500 text-sm">No notifications</div>
+              <div className="py-8 text-center text-slate-500 text-sm">No new notifications</div>
             ) : (
               notifs.map(n => (
                 <div
                   key={n.id}
                   onClick={() => markRead(n)}
-                  className={`px-4 py-3 border-b border-slate-700/50 cursor-pointer hover:bg-slate-700/40 transition-colors ${!n.read ? 'bg-indigo-900/10' : ''}`}
+                  className={`px-4 py-3 border-b border-slate-700/50 cursor-pointer hover:bg-slate-700/40 transition-all duration-300 ${
+                    n.read ? 'opacity-50' : 'bg-indigo-900/10'
+                  }`}
                 >
                   <div className="flex items-start gap-2">
                     <span className="text-sm mt-0.5">{typeIcon[n.type] || '💬'}</span>
@@ -97,6 +126,9 @@ function NotificationBell() {
                       <p className={`text-xs leading-relaxed ${n.read ? 'text-slate-400' : 'text-white'}`}>
                         {n.message}
                       </p>
+                      {n.read && (
+                        <p className="text-[10px] text-slate-600 mt-0.5">Disappearing soon…</p>
+                      )}
                     </div>
                     {!n.read && <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0 mt-1" />}
                   </div>
@@ -218,7 +250,7 @@ export default function Layout({ children }) {
       )}
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-14 bg-slate-800/80 border-b border-slate-700/50 flex items-center px-4 gap-3 shrink-0 backdrop-blur relative z-30">
+        <header className="h-14 bg-slate-800/80 border-b border-slate-700/50 flex items-center px-4 gap-3 shrink-0 backdrop-blur">
           <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-1.5 rounded-lg hover:bg-slate-700 text-slate-400">
             <FiMenu size={18} />
           </button>
@@ -236,7 +268,7 @@ export default function Layout({ children }) {
                 <FiChevronDown size={13} className="text-slate-400" />
               </button>
               {profileMenuOpen && (
-                <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-[100]">
+                <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50">
                   <div className="px-3 py-2 border-b border-slate-700">
                     <p className="text-sm font-medium text-white truncate">
                       {user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : user?.username}
