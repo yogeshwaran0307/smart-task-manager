@@ -4,7 +4,7 @@ import { usersAPI } from '../../api/users';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
 import { PageLoading, Avatar, EmptyState } from '../common/ui';
-import { FiMessageSquare, FiSend, FiPlus, FiHash, FiX, FiSave, FiEdit2, FiTrash2, FiCheck, FiUserPlus, FiUserMinus } from 'react-icons/fi';
+import { FiMessageSquare, FiSend, FiPlus, FiHash, FiX, FiSave, FiEdit2, FiTrash2, FiCheck, FiUserPlus, FiUserMinus, FiAlertTriangle } from 'react-icons/fi';
 
 export default function Messaging() {
   const { user } = useAuth();
@@ -25,6 +25,7 @@ export default function Messaging() {
   const [hoveredMsgId, setHoveredMsgId] = useState(null);
   const [manageMembersModal, setManageMembersModal] = useState(false);
   const [channelMembers, setChannelMembers] = useState([]);
+  const [deleteChannelModal, setDeleteChannelModal] = useState(false);
   const messagesEndRef = useRef(null);
   const pollRef = useRef(null);
 
@@ -140,9 +141,7 @@ export default function Messaging() {
       await messagesAPI.addChannelMember(selectedChannel.id, userId);
       const r = await messagesAPI.getChannel(selectedChannel.id);
       setChannelMembers(r.data?.members ?? []);
-      const u = users.find(u => u.id === userId);
-      const name = u?.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u?.username ?? 'Member';
-      addToast(`${name} added to channel`);
+      addToast('Member added');
     } catch { addToast('Failed to add member', 'error'); }
   };
 
@@ -151,9 +150,7 @@ export default function Messaging() {
       await messagesAPI.removeChannelMember(selectedChannel.id, userId);
       const r = await messagesAPI.getChannel(selectedChannel.id);
       setChannelMembers(r.data?.members ?? []);
-      const u = users.find(u => u.id === userId);
-      const name = u?.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u?.username ?? 'Member';
-      addToast(`${name} removed from channel`);
+      addToast('Member removed');
     } catch { addToast('Failed to remove member', 'error'); }
   };
 
@@ -168,6 +165,20 @@ export default function Messaging() {
       const r = await messagesAPI.channels();
       setChannels(r.data?.results ?? r.data ?? []);
     } catch { addToast('Failed to create channel', 'error'); }
+  };
+
+  const handleDeleteChannel = async () => {
+    try {
+      await messagesAPI.deleteChannel(selectedChannel.id);
+      addToast('Channel deleted');
+      setDeleteChannelModal(false);
+      setSelectedChannel(null);
+      setMessages([]);
+      setChannelMembers([]);
+      setActiveView('dm');
+      const r = await messagesAPI.channels();
+      setChannels(r.data?.results ?? r.data ?? []);
+    } catch { addToast('Failed to delete channel', 'error'); }
   };
 
   // created_by can be a plain number OR an object {id, username}
@@ -248,16 +259,22 @@ export default function Messaging() {
                 <><div className="w-8 h-8 rounded-lg bg-indigo-600/20 flex items-center justify-center"><FiHash size={14} className="text-indigo-400" /></div>
                 <div><p className="text-sm font-semibold text-white">{selectedChannel?.name}</p></div>
                 {isChannelCreator && (
-                  <button onClick={async () => {
-                    try {
-                      const r = await messagesAPI.getChannel(selectedChannel.id);
-                      setChannelMembers(r.data?.members ?? []);
-                    } catch {}
-                    setManageMembersModal(true);
-                  }}
-                    className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs transition-colors">
-                    <FiUserPlus size={13} /> Manage Members
-                  </button>
+                  <div className="ml-auto flex items-center gap-2">
+                    <button onClick={async () => {
+                      try {
+                        const r = await messagesAPI.getChannel(selectedChannel.id);
+                        setChannelMembers(r.data?.members ?? []);
+                      } catch {}
+                      setManageMembersModal(true);
+                    }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs transition-colors">
+                      <FiUserPlus size={13} /> Manage Members
+                    </button>
+                    <button onClick={() => setDeleteChannelModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs transition-colors">
+                      <FiTrash2 size={13} /> Delete Channel
+                    </button>
+                  </div>
                 )}</>
               )}
             </div>
@@ -394,26 +411,21 @@ export default function Messaging() {
       {manageMembersModal && selectedChannel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm p-6">
-            <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-white">Manage Members — #{selectedChannel.name}</h3>
               <button onClick={() => setManageMembersModal(false)} className="text-slate-400 hover:text-white"><FiX size={16} /></button>
             </div>
-            <p className="text-xs text-slate-500 mb-4">{memberIds.length} member{memberIds.length !== 1 ? 's' : ''} in this channel</p>
             <div className="space-y-2 max-h-80 overflow-y-auto">
-              {[...users, ...(users.find(u => u.id === user?.id) ? [] : [user])].map(u => {
+              {users.map(u => {
                 const isMember = memberIds.includes(Number(u.id));
-                const isCreator = Number(u.id) === Number(createdById);
                 return (
                   <div key={u.id} className="flex items-center justify-between py-2 border-b border-slate-700">
                     <div className="flex items-center gap-2">
                       <Avatar user={u} size={7} />
                       <span className="text-sm text-white">{u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username}</span>
-                      {isCreator && <span className="text-xs text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">Creator</span>}
-                      {isMember && !isCreator && <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">Member</span>}
+                      {isMember && <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">Member</span>}
                     </div>
-                    {isCreator ? (
-                      <span className="text-xs text-slate-500 px-2">—</span>
-                    ) : isMember ? (
+                    {isMember ? (
                       <button
                         onClick={() => handleRemoveMember(u.id)}
                         className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded-lg hover:bg-red-400/10 transition-colors">
@@ -432,6 +444,34 @@ export default function Messaging() {
             </div>
             <div className="flex justify-end mt-4">
               <button className="btn btn-secondary" onClick={() => setManageMembersModal(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Channel Confirmation Modal */}
+      {deleteChannelModal && selectedChannel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm p-6">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                <FiAlertTriangle size={18} className="text-red-400" />
+              </div>
+              <h3 className="font-bold text-white">Delete Channel</h3>
+            </div>
+            <p className="text-sm text-slate-300 mb-1">
+              Are you sure you want to delete <span className="font-semibold text-white">#{selectedChannel.name}</span>?
+            </p>
+            <p className="text-xs text-slate-500 mb-6">
+              This will permanently delete the channel and all its messages. This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button className="btn btn-secondary" onClick={() => setDeleteChannelModal(false)}>Cancel</button>
+              <button
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors"
+                onClick={handleDeleteChannel}>
+                <FiTrash2 size={13} /> Delete Channel
+              </button>
             </div>
           </div>
         </div>

@@ -16,6 +16,7 @@ export const messagesAPI = {
   editChannelMsg: (msgId, content) => api.patch(`/api/messages/channels/msg/${msgId}/`, { content }),
   deleteChannelMsg: (msgId) => api.delete(`/api/messages/channels/msg/${msgId}/`),
   createChannel: (data) => api.post('/api/messages/channels/', data),
+  deleteChannel: (channelId) => api.delete(`/api/messages/channels/${channelId}/`),
   addChannelMember: (channelId, userId) => api.post(`/api/messages/channels/${channelId}/members/`, { user_id: userId }),
   removeChannelMember: (channelId, userId) => api.delete(`/api/messages/channels/${channelId}/members/${userId}/`),
 };
