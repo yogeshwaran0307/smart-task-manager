@@ -718,7 +718,7 @@ export default function TaskDetail() {
                 : 'You can upload files. Only Admins, Managers, HODs and Seniors can view and download files.'}
             </p>
           </div>
-          {!canViewFiles ? (
+          {!canViewFiles && attachments.length === 0 ? (
             <div className="text-center py-8">
               <FiShield size={24} className="text-slate-600 mx-auto mb-2" />
               <p className="text-sm text-slate-500">File viewing is restricted to Admins, Managers, HODs and Seniors.</p>
