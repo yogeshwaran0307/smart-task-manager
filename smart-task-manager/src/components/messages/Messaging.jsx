@@ -381,24 +381,45 @@ export default function Messaging() {
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-white">New Channel</h3>
-              <button onClick={() => setNewChannelModal(false)} className="text-slate-400 hover:text-white"><FiX size={16} /></button>
+              <button onClick={() => { setNewChannelModal(false); setNewChannelName(''); setSelectedMembers([]); }} className="text-slate-400 hover:text-white"><FiX size={16} /></button>
             </div>
             <input className="input mb-4" placeholder="channel-name" value={newChannelName}
               onChange={e => setNewChannelName(e.target.value)} autoFocus />
             <div className="mb-4">
-              <label className="block text-sm text-slate-300 mb-2">Select Members</label>
-              <select multiple className="w-full bg-slate-700 text-white rounded-lg p-2 h-40"
-                onChange={e => setSelectedMembers(Array.from(e.target.selectedOptions, o => Number(o.value)))}>
-                {users.map(u => (
-                  <option key={u.id} value={u.id}>
-                    {u.first_name ? `${u.first_name} ${u.last_name || ''}` : u.username}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-slate-400 mt-1">Hold Ctrl (Windows) or Cmd (Mac) to select multiple</p>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm text-slate-300">Add Members</label>
+                {selectedMembers.length > 0 && (
+                  <span className="text-xs text-indigo-400 bg-indigo-400/10 px-2 py-0.5 rounded-full">{selectedMembers.length} selected</span>
+                )}
+              </div>
+              <div className="space-y-1 max-h-52 overflow-y-auto pr-1">
+                {users.map(u => {
+                  const isSelected = selectedMembers.includes(u.id);
+                  const name = u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username;
+                  return (
+                    <button key={u.id} onClick={() => setSelectedMembers(prev =>
+                      isSelected ? prev.filter(id => id !== u.id) : [...prev, u.id]
+                    )}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-colors text-left ${
+                        isSelected ? 'bg-indigo-600/20 border border-indigo-500/40' : 'bg-slate-700/50 border border-transparent hover:bg-slate-700'
+                      }`}>
+                      <div className="relative flex-shrink-0">
+                        <Avatar user={u} size={8} />
+                        {isSelected && (
+                          <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-indigo-500 flex items-center justify-center">
+                            <FiCheck size={10} className="text-white" />
+                          </div>
+                        )}
+                      </div>
+                      <span className={`text-sm flex-1 ${isSelected ? 'text-indigo-200 font-medium' : 'text-slate-300'}`}>{name}</span>
+                      {isSelected && <FiX size={13} className="text-indigo-400 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <div className="flex gap-3 justify-end">
-              <button className="btn btn-secondary" onClick={() => setNewChannelModal(false)}>Cancel</button>
+              <button className="btn btn-secondary" onClick={() => { setNewChannelModal(false); setNewChannelName(''); setSelectedMembers([]); }}>Cancel</button>
               <button className="btn btn-primary" onClick={handleCreateChannel} disabled={!newChannelName.trim()}>
                 <FiSave size={14} /> Create
               </button>
@@ -411,32 +432,43 @@ export default function Messaging() {
       {manageMembersModal && selectedChannel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-white">Manage Members — #{selectedChannel.name}</h3>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="font-bold text-white">Manage Members</h3>
               <button onClick={() => setManageMembersModal(false)} className="text-slate-400 hover:text-white"><FiX size={16} /></button>
             </div>
-            <div className="space-y-2 max-h-80 overflow-y-auto">
+            <p className="text-xs text-slate-500 mb-4">#{selectedChannel.name} · {memberIds.length} member{memberIds.length !== 1 ? 's' : ''}</p>
+            <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
               {users.map(u => {
                 const isMember = memberIds.includes(Number(u.id));
+                const isCreator = Number(u.id) === Number(createdById);
+                const name = u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username;
                 return (
-                  <div key={u.id} className="flex items-center justify-between py-2 border-b border-slate-700">
-                    <div className="flex items-center gap-2">
-                      <Avatar user={u} size={7} />
-                      <span className="text-sm text-white">{u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username}</span>
-                      {isMember && <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">Member</span>}
+                  <div key={u.id}
+                    onClick={() => !isCreator && (isMember ? handleRemoveMember(u.id) : handleAddMember(u.id))}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-colors ${
+                      isCreator ? 'bg-slate-700/30 cursor-default' :
+                      isMember ? 'bg-emerald-500/10 border border-emerald-500/30 cursor-pointer hover:bg-red-500/10 hover:border-red-500/30 group' :
+                      'bg-slate-700/50 border border-transparent cursor-pointer hover:bg-indigo-600/10 hover:border-indigo-500/30'
+                    }`}>
+                    <div className="relative flex-shrink-0">
+                      <Avatar user={u} size={8} />
+                      {isMember && !isCreator && (
+                        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 group-hover:bg-red-500 flex items-center justify-center transition-colors">
+                          <FiCheck size={10} className="text-white group-hover:hidden" />
+                          <FiX size={10} className="text-white hidden group-hover:block" />
+                        </div>
+                      )}
                     </div>
-                    {isMember ? (
-                      <button
-                        onClick={() => handleRemoveMember(u.id)}
-                        className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded-lg hover:bg-red-400/10 transition-colors">
-                        <FiUserMinus size={12} /> Remove
-                      </button>
+                    <span className={`text-sm flex-1 ${isMember ? 'text-white font-medium' : 'text-slate-400'}`}>{name}</span>
+                    {isCreator ? (
+                      <span className="text-xs text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">Creator</span>
+                    ) : isMember ? (
+                      <span className="text-xs text-emerald-400 group-hover:text-red-400 transition-colors">
+                        <span className="group-hover:hidden">Member</span>
+                        <span className="hidden group-hover:inline">Remove</span>
+                      </span>
                     ) : (
-                      <button
-                        onClick={() => handleAddMember(u.id)}
-                        className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 px-2 py-1 rounded-lg hover:bg-indigo-400/10 transition-colors">
-                        <FiUserPlus size={12} /> Add
-                      </button>
+                      <span className="text-xs text-slate-500 hover:text-indigo-400">+ Add</span>
                     )}
                   </div>
                 );
