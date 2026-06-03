@@ -1144,7 +1144,16 @@ def tasks_list(request):
         search = (request.GET.get('search') or '').lower().strip()
         status_f = (request.GET.get('status') or '').lower().strip()
         priority_f = (request.GET.get('priority') or '').lower().strip()
-        qs = Task.objects.filter(deleted=False).prefetch_related('assignees', 'departments')
+        project_f = request.GET.get('project') or request.GET.get('project_id')
+
+        qs = Task.objects.filter(deleted=False).select_related('project').prefetch_related('assignees', 'departments')
+
+        if project_f:
+            try:
+                qs = qs.filter(project_id=int(project_f))
+            except (ValueError, TypeError):
+                pass
+
         result = []
         for t in qs:
             if not _is_item_visible(user, t):
@@ -1158,8 +1167,6 @@ def tasks_list(request):
             result.append(_serialize_task(t))
         return JsonResponse(result, safe=False)
     if request.method == 'POST':
-        if not user:
-            return JsonResponse({'error': 'Unauthenticated'}, status=401)
         if not _can_create(user):
             return JsonResponse({'error': 'You do not have permission to create tasks.'}, status=403)
         body = _json_body(request)
@@ -1215,7 +1222,6 @@ def tasks_list(request):
                                       ntype='task', related_id=t.id, related_type='task')
         return JsonResponse(_serialize_task(t), status=201)
     return JsonResponse({'error': 'Method not allowed'}, status=405)
-
 @csrf_exempt
 def my_tasks(request):
     user = _get_session_user(request)
@@ -1576,6 +1582,7 @@ def attachment_download(request, id):
     if not can_download:
         return JsonResponse({'error': 'Access denied'}, status=403)
     return JsonResponse({'data_b64': a.data_b64, 'name': a.name, 'mime_type': a.mime_type})
+
 @csrf_exempt
 def attachment_delete(request, id):
     user = _get_session_user(request)
