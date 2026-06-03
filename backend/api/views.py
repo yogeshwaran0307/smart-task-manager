@@ -1488,18 +1488,23 @@ def task_attachments(request, id):
     if request.method == 'GET':
         if not user:
             return JsonResponse([], safe=False)
+        # ✅ DEBUG — shows who is requesting files
+        print(f"DEBUG GET attachments - user.id: {user.id}, username: {user.username}, role: {_user_role(user)}")
         atts = Attachment.objects.filter(task=t, deleted=False).prefetch_related('visible_to')
         result = []
         can_view_all = _can_view_files_for_task(user, t)
         role = _user_role(user)
         for a in atts:
             visible_to_ids = list(a.visible_to.values_list('id', flat=True))
+            # ✅ DEBUG — shows each file and who can see it
+            print(f"DEBUG file '{a.name}' visible_to_ids: {visible_to_ids}, uploaded_by: {a.uploaded_by_id}")
             can_see = (
                 role in ('admin', 'manager') or
                 a.uploaded_by_id == user.id or
                 (can_view_all and not visible_to_ids) or
                 user.id in visible_to_ids
             )
+            print(f"DEBUG can_see: {can_see} for user {user.id}")
             if can_see:
                 result.append({
                     'id': a.id, 'task_id': id, 'name': a.name,
@@ -1524,7 +1529,7 @@ def task_attachments(request, id):
         mime_type = body.get('mime_type', 'application/octet-stream')
         visible_to_raw = body.get('visible_to') or []
 
-        # ✅ DEBUG — shows what frontend is sending
+        print(f"DEBUG POST - uploader: {user.id} ({user.username})")
         print(f"DEBUG visible_to_raw: {visible_to_raw}")
 
         try:
@@ -1551,7 +1556,6 @@ def task_attachments(request, id):
             a.visible_to.set(visible_to_ids)
             a.refresh_from_db()
 
-        # ✅ DEBUG — shows what was actually saved to DB
         saved_visible_to = list(a.visible_to.values_list('id', flat=True))
         print(f"DEBUG saved visible_to in DB: {saved_visible_to}")
 
