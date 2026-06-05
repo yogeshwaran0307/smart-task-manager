@@ -215,9 +215,6 @@ export default function ProjectDetail() {
             <Link to={`/kanban/${id}`} className="btn btn-secondary text-xs">
               <FiLayers size={14} /> Kanban
             </Link>
-            <Link to={`/calendar/${id}`} className="btn btn-secondary text-xs">
-              <FiCalendar size={14} /> Calendar
-            </Link>
             {canEdit && !isOverdue && (
               <Link to={`/projects/${id}/edit`} className="btn btn-secondary text-xs">
                 <FiEdit2 size={14} /> Edit
