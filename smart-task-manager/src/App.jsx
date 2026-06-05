@@ -23,6 +23,7 @@ import TeamWorkload from './components/dashboard/TeamWorkload';
 import DepartmentManagement from './components/admin/DepartmentManagement';
 import RoleManagement from './components/admin/RoleManagement';
 import { ProfilePage, SettingsPage } from './components/auth/Profile';
+import CalendarView from './components/projects/CalendarView';
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -123,6 +124,7 @@ function AppRoutes() {
 
       <Route path="/kanban" element={<RequireAuth><Layout><KanbanPicker /></Layout></RequireAuth>} />
       <Route path="/kanban/:id" element={<RequireAuth><Layout><KanbanBoard /></Layout></RequireAuth>} />
+      <Route path="/calendar/:id" element={<RequireAuth><Layout><CalendarView /></Layout></RequireAuth>} />
 
       <Route path="/recycle-bin" element={<RequireRecycleBinAccess><Layout><RecycleBin /></Layout></RequireRecycleBinAccess>} />
 
