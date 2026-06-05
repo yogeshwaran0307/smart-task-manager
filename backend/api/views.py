@@ -712,7 +712,8 @@ def project_detail(request, id):
         p.deleted = True
         p.deleted_at = timezone.now()
         p.save()
-        _add_activity(f"Project '{p.name}' moved to recycle bin by {user.display_name()}", user)
+        Task.objects.filter(project=p, deleted=False).update(deleted=True, deleted_at=timezone.now())
+        _add_activity(f"Project '{p.name}' and its tasks moved to recycle bin by {user.display_name()}", user)
         return JsonResponse({'success': True})
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 
@@ -887,7 +888,8 @@ def project_restore(request, id):
         p.deleted = False
         p.deleted_at = None
         p.save()
-        _add_activity(f"Project '{p.name}' restored by {user.display_name()}", user)
+        Task.objects.filter(project=p, deleted=True).update(deleted=False, deleted_at=None)
+        _add_activity(f"Project '{p.name}' and its tasks restored by {user.display_name()}", user)
     return JsonResponse({'success': True})
 
 @csrf_exempt
@@ -898,6 +900,7 @@ def project_purge(request, id):
     p = Project.objects.filter(id=id).first()
     if p:
         _add_activity(f"Project '{p.name}' permanently deleted by {user.display_name()}", user)
+        Task.objects.filter(project=p).delete()
         p.delete()
     return JsonResponse({'success': True})
 
