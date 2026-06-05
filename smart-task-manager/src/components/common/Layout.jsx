@@ -72,7 +72,7 @@ function NotificationBell() {
         )}
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl z-[100]">
+        <div className="fixed right-4 top-14 mt-1 w-80 max-w-[calc(100vw-2rem)] bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl z-[200]">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
             <span className="font-semibold text-white text-sm">Notifications</span>
             {unread > 0 && (
@@ -81,7 +81,7 @@ function NotificationBell() {
               </button>
             )}
           </div>
-          <div className="max-h-80 overflow-y-auto">
+          <div className="max-h-64 overflow-y-auto">
             {notifs.length === 0 ? (
               <div className="py-8 text-center text-slate-500 text-sm">No notifications</div>
             ) : (
