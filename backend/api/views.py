@@ -1906,7 +1906,12 @@ def user_detail(request, id):
             return JsonResponse({'error': 'You do not have permission to edit this user.'}, status=403)
         body = _json_body(request)
         if is_privileged:
-            # Privileged users can edit all fields
+            # Privileged users can edit all fields including username
+            new_uname = body.get('username', '').strip()
+            if new_uname and new_uname != u.username:
+                if User.objects.filter(username=new_uname).exclude(id=u.id).exists():
+                    return JsonResponse({'error': 'Username already taken'}, status=400)
+                u.username = new_uname
             for k in ('name', 'email', 'first_name', 'last_name', 'phone', 'bio', 'role'):
                 if k in body:
                     setattr(u, k, body[k])
@@ -1920,7 +1925,12 @@ def user_detail(request, id):
                 effective_role = body.get('role', u.role)
                 u.extra_permissions = _strip_role_perms(raw_perms, effective_role)
         else:
-            # Self-edit: only limited fields allowed
+            # Self-edit: username + limited fields allowed
+            new_uname = body.get('username', '').strip()
+            if new_uname and new_uname != u.username:
+                if User.objects.filter(username=new_uname).exclude(id=u.id).exists():
+                    return JsonResponse({'error': 'Username already taken'}, status=400)
+                u.username = new_uname
             for k in ('name', 'email', 'first_name', 'last_name', 'phone', 'bio'):
                 if k in body:
                     setattr(u, k, body[k])
