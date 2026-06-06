@@ -88,7 +88,7 @@ export function ProfilePage() {
 
         <form onSubmit={handleSave} className="space-y-4">
           <div>
-            <label className="label">Username</label>
+            <label className="label">Username *</label>
             <input className="input" value={form.username} onChange={e => set('username', e.target.value)} placeholder="username" />
           </div>
           <div className="grid grid-cols-2 gap-4">
