@@ -1,4 +1,12 @@
-import json, base64, hmac, hashlib, datetime, os, uuid
+
+
+import json, base64, hmac, hashlib, os, uuid
+import datetime 
+from .jibble import (
+    get_who_is_in, get_attendance,
+    get_employees, get_timesheets,
+    get_holidays, get_schedules
+)
 from .models import ChannelMember
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -2735,3 +2743,44 @@ def channel_member_detail(request, channel_id, user_id):
         members = [_serialize_user(cm.user) for cm in ChannelMember.objects.filter(channel=ch).select_related('user')]
         return JsonResponse({'success': True, 'members': members})
     return JsonResponse({'error': 'Method not allowed'}, status=405)
+@csrf_exempt
+def jibble_live_attendance(request):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
+    data = get_who_is_in()
+    return JsonResponse({'attendance': data})
+
+@csrf_exempt
+def jibble_attendance(request):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
+    date_from = request.GET.get('from', str(datetime.date.today()))
+    date_to   = request.GET.get('to',   str(datetime.date.today()))
+    data = get_attendance(date_from, date_to)
+    return JsonResponse({'attendance': data})
+
+@csrf_exempt
+def jibble_employees(request):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
+    data = get_employees()
+    return JsonResponse({'employees': data})
+
+@csrf_exempt
+def jibble_timesheets(request):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
+    date_from = request.GET.get('from', str(datetime.date.today()))
+    date_to   = request.GET.get('to',   str(datetime.date.today()))
+    data = get_timesheets(date_from, date_to)
+    return JsonResponse({'timesheets': data})
+
+@csrf_exempt
+def jibble_test(request):
+    from .jibble import test_connection
+    data = test_connection()
+    return JsonResponse(data)

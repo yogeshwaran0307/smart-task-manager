@@ -66,4 +66,10 @@ urlpatterns = [
     path('extension-requests/<int:id>/', extension_request_detail),
     path('extension-requests/<int:id>/approve/', extension_request_approve),
     path('extension-requests/<int:id>/reject/', extension_request_reject),
+    # ── Jibble ──
+    path('jibble/live/',       jibble_live_attendance),
+    path('jibble/attendance/', jibble_attendance),
+    path('jibble/employees/',  jibble_employees),
+    path('jibble/timesheets/', jibble_timesheets),
+    path('jibble/test/',       jibble_test),
 ]

@@ -9,6 +9,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
 # ─────────────────────────────────────────────────────────────
+# JIBBLE API
+# ─────────────────────────────────────────────────────────────
+JIBBLE_KEY_ID     = os.environ.get('JIBBLE_KEY_ID', '')
+JIBBLE_KEY_SECRET = os.environ.get('JIBBLE_KEY_SECRET', '')
+
+# ─────────────────────────────────────────────────────────────
 # SECURITY
 # ─────────────────────────────────────────────────────────────
 SECRET_KEY = os.environ.get(
