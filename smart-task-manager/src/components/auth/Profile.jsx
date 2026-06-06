@@ -2,45 +2,40 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
 import { authAPI } from '../../api/auth';
-import { PageHeader, Avatar } from '../common/ui';
+import { PageHeader } from '../common/ui';
 import { FiSave, FiLock, FiUser } from 'react-icons/fi';
 
 export function ProfilePage() {
-  const { user, updateUser, fetchProfile } = useAuth();
+  const { user, fetchProfile } = useAuth();
   const { addToast } = useApp();
   const [saving, setSaving] = useState(false);
   const [pwSaving, setPwSaving] = useState(false);
-  const [pwForm, setPwForm] = useState({
-    old_password: '', new_password: '', confirm_password: ''
-  });
+  const [pwForm, setPwForm] = useState({ old_password: '', new_password: '', confirm_password: '' });
   const [form, setForm] = useState({
-    username: user?.username || '',
-    first_name: user?.first_name || '',
-    last_name: user?.last_name || '',
-    email: user?.email || '',
-    phone: user?.phone || '',
-    bio: user?.bio || '',
-});
+    username: '', first_name: '', last_name: '', email: '', phone: '', bio: '',
+  });
 
-useEffect(() => {
+  useEffect(() => {
     if (user) {
-        setForm({
-            username: user.username || '',
-            first_name: user.first_name || '',
-            last_name: user.last_name || '',
-            email: user.email || '',
-            phone: user.phone || '',
-            bio: user.bio || '',
-        });
+      setForm({
+        username: user.username || '',
+        first_name: user.first_name || '',
+        last_name: user.last_name || '',
+        email: user.email || '',
+        phone: user.phone || '',
+        bio: user.bio || '',
+      });
     }
-}, [user]);
+  }, [user]);
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
       await authAPI.updateProfile(form);
-      await fetchProfile(); // Re-fetch fresh user data from backend
+      await fetchProfile();
       addToast('Profile updated');
     } catch (err) {
       addToast(err.response?.data?.error || err.response?.data?.detail || 'Failed to update profile', 'error');
@@ -52,34 +47,22 @@ useEffect(() => {
   const handlePasswordChange = async (e) => {
     e.preventDefault();
     if (pwForm.new_password !== pwForm.confirm_password) {
-      addToast('Passwords do not match', 'error');
-      return;
+      addToast('Passwords do not match', 'error'); return;
     }
     if (pwForm.new_password.length < 4) {
-      addToast('Password must be at least 4 characters', 'error');
-      return;
+      addToast('Password must be at least 4 characters', 'error'); return;
     }
     setPwSaving(true);
     try {
-      await authAPI.updatePassword({
-        old_password: pwForm.old_password,
-        new_password: pwForm.new_password,
-      });
+      await authAPI.updatePassword({ old_password: pwForm.old_password, new_password: pwForm.new_password });
       addToast('Password updated successfully');
       setPwForm({ old_password: '', new_password: '', confirm_password: '' });
     } catch (err) {
-      addToast(
-        err.response?.data?.error ||
-        err.response?.data?.detail ||
-        'Failed to update password',
-        'error'
-      );
+      addToast(err.response?.data?.error || err.response?.data?.detail || 'Failed to update password', 'error');
     } finally {
       setPwSaving(false);
     }
   };
-
-  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
   const roleLabel = {
     admin: 'Administrator', manager: 'Manager', head_of_department: 'Head of Department',
@@ -99,9 +82,7 @@ useEffect(() => {
               {user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : user?.username}
             </h2>
             <p className="text-sm text-slate-400">{roleLabel}</p>
-            {user?.department_name && (
-              <p className="text-xs text-slate-500 mt-0.5">{user.department_name}</p>
-            )}
+            {user?.department_name && <p className="text-xs text-slate-500 mt-0.5">{user.department_name}</p>}
           </div>
         </div>
 
@@ -140,7 +121,6 @@ useEffect(() => {
         </form>
       </div>
 
-      {/* Change Password */}
       <div className="card p-6">
         <h2 className="font-bold text-white mb-5 flex items-center gap-2">
           <FiLock size={16} className="text-indigo-400" /> Change Password
@@ -148,23 +128,46 @@ useEffect(() => {
         <form onSubmit={handlePasswordChange} className="space-y-4">
           <div>
             <label className="label">Current Password</label>
-            <input className="input" type="password" value={pwForm.old_password}
-              onChange={e => setPwForm(p => ({ ...p, old_password: e.target.value }))} required />
+            <input className="input" type="password" value={pwForm.old_password} onChange={e => setPwForm(p => ({ ...p, old_password: e.target.value }))} required />
           </div>
           <div>
             <label className="label">New Password</label>
-            <input className="input" type="password" value={pwForm.new_password}
-              onChange={e => setPwForm(p => ({ ...p, new_password: e.target.value }))} required minLength={4} />
+            <input className="input" type="password" value={pwForm.new_password} onChange={e => setPwForm(p => ({ ...p, new_password: e.target.value }))} required minLength={4} />
           </div>
           <div>
             <label className="label">Confirm New Password</label>
-            <input className="input" type="password" value={pwForm.confirm_password}
-              onChange={e => setPwForm(p => ({ ...p, confirm_password: e.target.value }))} required />
+            <input className="input" type="password" value={pwForm.confirm_password} onChange={e => setPwForm(p => ({ ...p, confirm_password: e.target.value }))} required />
           </div>
           <button type="submit" className="btn btn-primary" disabled={pwSaving}>
             <FiSave size={14} /> {pwSaving ? 'Updating…' : 'Update Password'}
           </button>
         </form>
+      </div>
+
+      <div className="card p-6">
+        <h2 className="font-bold text-white mb-4 flex items-center gap-2">
+          <FiUser size={16} className="text-indigo-400" /> Account Info
+        </h2>
+        <div className="space-y-3 text-sm">
+          <div className="flex justify-between">
+            <span className="text-slate-400">Username</span>
+            <span className="text-white font-mono">{user?.username}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-400">Role</span>
+            <span className="text-white capitalize">{user?.role?.replace(/_/g, ' ')}</span>
+          </div>
+          {user?.department_name && (
+            <div className="flex justify-between">
+              <span className="text-slate-400">Department</span>
+              <span className="text-white">{user.department_name}</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span className="text-slate-400">Member since</span>
+            <span className="text-white">{user?.date_joined ? new Date(user.date_joined).toLocaleDateString() : '—'}</span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -173,18 +176,13 @@ useEffect(() => {
 export function SettingsPage() {
   const { user } = useAuth();
   const { addToast } = useApp();
-  const [saving, setSaving] = useState(false);
   const [notifSettings, setNotifSettings] = useState({
-    email_on_task_assign: true,
-    email_on_comment: true,
-    email_on_approval: true,
+    email_on_task_assign: true, email_on_comment: true, email_on_approval: true,
   });
 
   return (
     <div className="max-w-xl mx-auto space-y-6">
       <PageHeader title="Settings" />
-
-      {/* Notifications */}
       <div className="card p-6">
         <h2 className="font-bold text-white mb-5">Notification Preferences</h2>
         <div className="space-y-3">
@@ -196,8 +194,7 @@ export function SettingsPage() {
             <label key={item.key} className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-700/40 cursor-pointer">
               <span className="text-sm text-slate-300">{item.label}</span>
               <div className="relative">
-                <input type="checkbox" className="sr-only"
-                  checked={notifSettings[item.key]}
+                <input type="checkbox" className="sr-only" checked={notifSettings[item.key]}
                   onChange={e => setNotifSettings(p => ({ ...p, [item.key]: e.target.checked }))} />
                 <div className={`w-10 h-5 rounded-full transition-colors ${notifSettings[item.key] ? 'bg-indigo-600' : 'bg-slate-600'}`}>
                   <div className={`w-4 h-4 bg-white rounded-full transition-transform mt-0.5 ${notifSettings[item.key] ? 'translate-x-5' : 'translate-x-1'}`} />
@@ -211,7 +208,6 @@ export function SettingsPage() {
         </button>
       </div>
 
-      {/* Account Info */}
       <div className="card p-6">
         <h2 className="font-bold text-white mb-4 flex items-center gap-2">
           <FiUser size={16} className="text-indigo-400" /> Account Info
