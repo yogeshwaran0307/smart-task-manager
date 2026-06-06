@@ -79,7 +79,18 @@ export default function Messaging() {
       try {
         const r = await messagesAPI.getChannel(ch.id);
         setMessages(r.data?.messages ?? []);
-      } catch {}
+      } catch (err) {
+        // ✅ If channel is deleted (404), stop polling and reset view
+        if (err?.response?.status === 404) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          setSelectedChannel(null);
+          setMessages([]);
+          setActiveView('dm');
+          const r2 = await messagesAPI.channels().catch(() => ({ data: [] }));
+          setChannels(r2.data?.results ?? r2.data ?? []);
+        }
+      }
     }, 5000);
   };
 
@@ -170,6 +181,9 @@ export default function Messaging() {
   const handleDeleteChannel = async () => {
     try {
       await messagesAPI.deleteChannel(selectedChannel.id);
+      // ✅ Stop polling immediately before clearing state
+      clearInterval(pollRef.current);
+      pollRef.current = null;
       addToast('Channel deleted');
       setDeleteChannelModal(false);
       setSelectedChannel(null);
