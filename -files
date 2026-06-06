@@ -1,0 +1,104 @@
+[33mcommit 8d0f088b523324121a49a3d9462f68950518c478[m
+Author: Yogeshwaran <suyogesh06@gmail.com>
+Date:   Sat Jun 6 17:23:02 2026 +0530
+
+    fix: remove .env and venv from git, add gitignore
+
+[1mdiff --git a/backend/.env b/backend/.env[m
+[1mdeleted file mode 100644[m
+[1mindex a208edd..0000000[m
+[1m--- a/backend/.env[m
+[1m+++ /dev/null[m
+[36m@@ -1,31 +0,0 @@[m
+[31m-# ─── Copy this file to .env and fill in your real values ────────────────────[m
+[31m-[m
+[31m-# Django secret key — generate a new one for production:[m
+[31m-#   python -c "import secrets; print(secrets.token_hex(50))"[m
+[31m-DJANGO_SECRET_KEY=django-insecure-smarttask-dev-key-change-in-production[m
+[31m-[m
+[31m-# Set to false in production[m
+[31m-DJANGO_DEBUG=true[m
+[31m-[m
+[31m-# Comma-separated list of allowed hosts (use * only in dev)[m
+[31m-DJANGO_ALLOWED_HOSTS=*[m
+[31m-[m
+[31m-# Token auth settings[m
+[31m-TOKEN_SECRET=smarttask-secret-key-dev-change-in-production[m
+[31m-TOKEN_MAX_AGE_SECONDS=86400[m
+[31m-[m
+[31m-# ─── MySQL Database (required) ───────────────────────────────────────────────[m
+[31m-# Option A — individual variables (recommended):[m
+[31m-DB_NAME=smart_task_manager[m
+[31m-DB_USER=root[m
+[31m-DB_PASSWORD=yogesh0307[m
+[31m-DB_HOST=127.0.0.1[m
+[31m-DB_PORT=3306[m
+[31m-[m
+[31m-# Option B — single connection URL (alternative to Option A):[m
+[31m-# DATABASE_URL=mysql://root:your_mysql_password@127.0.0.1:3306/smart_task_manager[m
+[31m-[m
+[31m-# ─── Frontend CORS (leave blank in dev to allow all localhost origins) ───────[m
+[31m-# CORS_ALLOWED_ORIGINS=https://myapp.com[m
+[31m-JIBBLE_KEY_ID = bd10b071-c1da-4b14-b13c-c53108da2011[m
+[31m-JIBBLE_KEY_SECRET = prpyIWrFXDgd0j4AZnucC2deqSqADMYIlHuNt1SNpvQbUtit[m
+\ No newline at end of file[m
+
+[33mcommit 3cf5bf43268883d004c26ac3178a6e6cb52d7542[m
+Author: Yogeshwaran <suyogesh06@gmail.com>
+Date:   Sat Jun 6 17:02:47 2026 +0530
+
+    feat: add Jibble API credentials to settings
+
+[1mdiff --git a/backend/.env b/backend/.env[m
+[1mindex 4b1ddec..a208edd 100644[m
+[1m--- a/backend/.env[m
+[1m+++ b/backend/.env[m
+[36m@@ -27,3 +27,5 @@[m [mDB_PORT=3306[m
+ [m
+ # ─── Frontend CORS (leave blank in dev to allow all localhost origins) ───────[m
+ # CORS_ALLOWED_ORIGINS=https://myapp.com[m
+[32m+[m[32mJIBBLE_KEY_ID = bd10b071-c1da-4b14-b13c-c53108da2011[m
+[32m+[m[32mJIBBLE_KEY_SECRET = prpyIWrFXDgd0j4AZnucC2deqSqADMYIlHuNt1SNpvQbUtit[m
+\ No newline at end of file[m
+
+[33mcommit 5cc9363ea8d3fadd7c4b4e8fb27654129cad2cee[m
+Author: Yogeshwaran <suyogesh06@gmail.com>
+Date:   Wed May 27 12:24:33 2026 +0530
+
+    first upload
+
+[1mdiff --git a/backend/.env b/backend/.env[m
+[1mnew file mode 100644[m
+[1mindex 0000000..4b1ddec[m
+[1m--- /dev/null[m
+[1m+++ b/backend/.env[m
+[36m@@ -0,0 +1,29 @@[m
+[32m+[m[32m# ─── Copy this file to .env and fill in your real values ────────────────────[m
+[32m+[m
+[32m+[m[32m# Django secret key — generate a new one for production:[m
+[32m+[m[32m#   python -c "import secrets; print(secrets.token_hex(50))"[m
+[32m+[m[32mDJANGO_SECRET_KEY=django-insecure-smarttask-dev-key-change-in-production[m
+[32m+[m
+[32m+[m[32m# Set to false in production[m
+[32m+[m[32mDJANGO_DEBUG=true[m
+[32m+[m
+[32m+[m[32m# Comma-separated list of allowed hosts (use * only in dev)[m
+[32m+[m[32mDJANGO_ALLOWED_HOSTS=*[m
+[32m+[m
+[32m+[m[32m# Token auth settings[m
+[32m+[m[32mTOKEN_SECRET=smarttask-secret-key-dev-change-in-production[m
+[32m+[m[32mTOKEN_MAX_AGE_SECONDS=86400[m
+[32m+[m
+[32m+[m[32m# ─── MySQL Database (required) ───────────────────────────────────────────────[m
+[32m+[m[32m# Option A — individual variables (recommended):[m
+[32m+[m[32mDB_NAME=smart_task_manager[m
+[32m+[m[32mDB_USER=root[m
+[32m+[m[32mDB_PASSWORD=yogesh0307[m
+[32m+[m[32mDB_HOST=127.0.0.1[m
+[32m+[m[32mDB_PORT=3306[m
+[32m+[m
+[32m+[m[32m# Option B — single connection URL (alternative to Option A):[m
+[32m+[m[32m# DATABASE_URL=mysql://root:your_mysql_password@127.0.0.1:3306/smart_task_manager[m
+[32m+[m
+[32m+[m[32m# ─── Frontend CORS (leave blank in dev to allow all localhost origins) ───────[m
+[32m+[m[32m# CORS_ALLOWED_ORIGINS=https://myapp.com[m

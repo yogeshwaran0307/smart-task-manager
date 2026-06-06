@@ -2743,11 +2743,9 @@ def channel_member_detail(request, channel_id, user_id):
         members = [_serialize_user(cm.user) for cm in ChannelMember.objects.filter(channel=ch).select_related('user')]
         return JsonResponse({'success': True, 'members': members})
     return JsonResponse({'error': 'Method not allowed'}, status=405)
+
 @csrf_exempt
 def jibble_live_attendance(request):
-    user = _get_session_user(request)
-    if not user:
-        return JsonResponse({'error': 'Unauthenticated'}, status=401)
     data = get_who_is_in()
     return JsonResponse({'attendance': data})
 
