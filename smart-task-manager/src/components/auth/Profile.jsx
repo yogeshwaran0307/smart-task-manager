@@ -6,7 +6,7 @@ import { PageHeader, Avatar } from '../common/ui';
 import { FiSave, FiLock, FiUser } from 'react-icons/fi';
 
 export function ProfilePage() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, fetchProfile } = useAuth();
   const { addToast } = useApp();
   const [saving, setSaving] = useState(false);
   const [pwSaving, setPwSaving] = useState(false);
@@ -26,11 +26,11 @@ export function ProfilePage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const res = await authAPI.updateProfile(form);
-      updateUser(res.data);
+      await authAPI.updateProfile(form);
+      await fetchProfile(); // Re-fetch fresh user data from backend
       addToast('Profile updated');
     } catch (err) {
-      addToast(err.response?.data?.detail || 'Failed to update profile', 'error');
+      addToast(err.response?.data?.error || err.response?.data?.detail || 'Failed to update profile', 'error');
     } finally {
       setSaving(false);
     }

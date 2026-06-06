@@ -716,6 +716,7 @@ def project_detail(request, id):
         p.deleted = True
         p.deleted_at = timezone.now()
         p.save()
+        Task.objects.filter(project=p, deleted=False).update(deleted=True, deleted_at=timezone.now())
         _add_activity(f"Project '{p.name}' moved to recycle bin by {user.display_name()}", user)
         return JsonResponse({'success': True})
     return JsonResponse({'error': 'Method not allowed'}, status=405)
