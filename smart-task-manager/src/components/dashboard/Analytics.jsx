@@ -213,20 +213,34 @@ export default function Analytics() {
                   {isEmployee ? 'No tasks assigned to you yet.' : 'No tasks found.'}
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height={200}>
+                <ResponsiveContainer width="100%" height={220}>
                   <PieChart>
                     <Pie
                       data={data.charts.status_distribution}
-                      cx="50%" cy="50%" outerRadius={70}
+                      cx="50%" cy="45%" outerRadius={75}
                       dataKey="value" nameKey="name"
-                      label={({ name, value }) => value > 0 ? `${name}: ${value}` : ''}
+                      labelLine={false}
+                      label={false}
                     >
                       {data.charts.status_distribution.map((_, i) => (
                         <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, fontSize: 12 }} />
-                    <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-slate-400 text-xs">{v}</span>} />
+                    <Tooltip
+                      contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, fontSize: 12 }}
+                      formatter={(value, name) => [`${value} tasks`, name]}
+                    />
+                    <Legend
+                      iconType="circle"
+                      iconSize={8}
+                      verticalAlign="bottom"
+                      align="center"
+                      formatter={(v, entry) => (
+                        <span style={{ color: '#94a3b8', fontSize: 12 }}>
+                          {v}: {entry.payload.value}
+                        </span>
+                      )}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               )}
