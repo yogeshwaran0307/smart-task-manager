@@ -253,7 +253,7 @@ function UserModal({ title, editForm, setEditForm, departments, rolesList, isEdi
                 onChange={e => setField('username', e.target.value)}
                 placeholder="username"
                 autoComplete="off"
-                disabled={isEdit}
+                
               />
             </div>
             <div>
