@@ -712,8 +712,7 @@ def project_detail(request, id):
         p.deleted = True
         p.deleted_at = timezone.now()
         p.save()
-        Task.objects.filter(project=p, deleted=False).update(deleted=True, deleted_at=timezone.now())
-        _add_activity(f"Project '{p.name}' and its tasks moved to recycle bin by {user.display_name()}", user)
+        _add_activity(f"Project '{p.name}' moved to recycle bin by {user.display_name()}", user)
         return JsonResponse({'success': True})
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 
@@ -888,8 +887,7 @@ def project_restore(request, id):
         p.deleted = False
         p.deleted_at = None
         p.save()
-        Task.objects.filter(project=p, deleted=True).update(deleted=False, deleted_at=None)
-        _add_activity(f"Project '{p.name}' and its tasks restored by {user.display_name()}", user)
+        _add_activity(f"Project '{p.name}' restored by {user.display_name()}", user)
     return JsonResponse({'success': True})
 
 @csrf_exempt
@@ -900,7 +898,6 @@ def project_purge(request, id):
     p = Project.objects.filter(id=id).first()
     if p:
         _add_activity(f"Project '{p.name}' permanently deleted by {user.display_name()}", user)
-        Task.objects.filter(project=p).delete()
         p.delete()
     return JsonResponse({'success': True})
 
@@ -1180,6 +1177,12 @@ def tasks_list(request):
                 dept_ids = hod_depts
             elif not all(d in hod_depts for d in dept_ids):
                 return JsonResponse({'error': 'As HOD, you can only create tasks for your department(s).'}, status=403)
+        # Block task creation if the project is overdue/locked
+        project_id_for_task = body.get('project') or None
+        if project_id_for_task:
+            proj = Project.objects.filter(id=project_id_for_task, deleted=False).first()
+            if proj and _is_overdue(proj):
+                return JsonResponse({'error': 'This project has passed its due date and is locked. No new tasks can be created.'}, status=403)
         auto = _auto_approve(user)
         task_due_date = body.get('due_date') or None
         if not task_due_date:
@@ -1288,6 +1291,8 @@ def task_detail(request, id):
             return JsonResponse({'error': 'Unauthenticated'}, status=401)
         if _is_overdue(t):
             return JsonResponse({'error': 'This task has passed its due date and is locked. No changes are allowed.'}, status=403)
+        if t.project and _is_overdue(t.project):
+            return JsonResponse({'error': 'This project has passed its due date and is locked. No changes are allowed.'}, status=403)
         if not _can_edit_item(user, t):
             return JsonResponse({'error': 'You do not have permission to edit this task.'}, status=403)
         body = _json_body(request)
@@ -1380,6 +1385,9 @@ def task_kanban(request, id):
         return JsonResponse({'error': 'You do not have permission to update this task.'}, status=403)
     if _is_overdue(t):
         return JsonResponse({'error': 'This task has passed its due date and is locked.'}, status=403)
+    # Also block if the project is overdue
+    if t.project and _is_overdue(t.project):
+        return JsonResponse({'error': 'This project has passed its due date and is locked. Kanban updates are not allowed.'}, status=403)
     body = _json_body(request)
     _apply_task_body(t, body)
     t_fresh = Task.objects.filter(id=id).prefetch_related('assignees', 'departments').first()

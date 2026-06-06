@@ -78,6 +78,7 @@ export default function KanbanBoard() {
   const onDrop = async (e, toStatus) => {
     e.preventDefault();
     e.currentTarget.classList.remove('kanban-col-over');
+    if (isProjectLocked) return;
     const task = dragTaskRef.current;
     const fromStatus = dragFromColRef.current;
     if (!task || fromStatus === toStatus) return;
@@ -101,6 +102,8 @@ export default function KanbanBoard() {
   const { canCreateTasks } = useAuth();
   if (loading) return <PageLoading />;
 
+  const isProjectLocked = project?.due_date && new Date(project.due_date) < new Date();
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -110,13 +113,19 @@ export default function KanbanBoard() {
         </div>
         <div className="flex items-center gap-2">
           <Link to={`/projects/${projectId}`} className="btn btn-secondary text-xs">← List View</Link>
-          {canCreateTasks && (
+          {canCreateTasks && !isProjectLocked && (
             <Link to={`/tasks/create/${projectId}`} className="btn btn-primary text-xs">
               <FiPlus size={14} /> Add Task
             </Link>
           )}
         </div>
       </div>
+
+      {isProjectLocked && (
+        <div className="mb-4 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center gap-2">
+          🔒 This project has passed its due date and is <strong>locked</strong>. No tasks can be created or edited. Request an extension to make changes.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 items-start">
         {COLUMNS.map(col => {
@@ -138,10 +147,12 @@ export default function KanbanBoard() {
                     {colTasks.length}
                   </span>
                 </div>
+                {!isProjectLocked && (
                 <Link to={`/tasks/create/${projectId}?status=${col.key}`}
                   className="text-slate-500 hover:text-indigo-400 transition-colors p-1">
                   <FiPlus size={14} />
                 </Link>
+              )}
               </div>
 
               {/* Cards */}
