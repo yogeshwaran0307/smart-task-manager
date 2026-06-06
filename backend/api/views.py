@@ -425,7 +425,11 @@ def profile_view(request):
         return JsonResponse(_serialize_user(user))
     if request.method == 'PATCH':
         body = _json_body(request)
-        for k in ('name', 'email', 'first_name', 'last_name', 'phone', 'bio'):
+        new_username = body.get('username', '').strip()
+        if new_username and new_username != user.username:
+            if User.objects.filter(username=new_username).exclude(id=user.id).exists():
+                return JsonResponse({'error': 'Username already taken'}, status=400)
+        for k in ('username', 'name', 'email', 'first_name', 'last_name', 'phone', 'bio'):
             if k in body:
                 setattr(user, k, body[k])
         user.save()
