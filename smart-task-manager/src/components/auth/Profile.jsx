@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
 import { authAPI } from '../../api/auth';
@@ -20,7 +20,20 @@ export function ProfilePage() {
     email: user?.email || '',
     phone: user?.phone || '',
     bio: user?.bio || '',
-  });
+});
+
+useEffect(() => {
+    if (user) {
+        setForm({
+            username: user.username || '',
+            first_name: user.first_name || '',
+            last_name: user.last_name || '',
+            email: user.email || '',
+            phone: user.phone || '',
+            bio: user.bio || '',
+        });
+    }
+}, [user]);
 
   const handleSave = async (e) => {
     e.preventDefault();
