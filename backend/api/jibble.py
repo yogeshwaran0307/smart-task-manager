@@ -128,10 +128,8 @@ def get_attendance(date_from=None, date_to=None):
     if isinstance(result, list):
         return result
     return result.get('value', result.get('data', []))
-
-
 def get_timesheets(date_from=None, date_to=None):
-    """Work hours timesheets - fetched directly from Jibble's timesheets API"""
+    """Work hours timesheets - one row per person per day"""
     from datetime import datetime as dt, timezone
 
     today = str(datetime.date.today())
@@ -141,104 +139,71 @@ def get_timesheets(date_from=None, date_to=None):
         date_to = today
 
     token = get_jibble_token()
-    if not token:
-        return []
-
-    people = get_employees()
-    people_map = {p['id']: p for p in people if p.get('isActive')}
-
-    result = []
-    now = dt.now(timezone.utc)
-
-    # ── Try Jibble's timesheets endpoint per person ───────────────────────────
-    # Jibble has /timesheets?personId=X&from=Y&to=Z
-    fetched_any = False
-
-    for person_id, person_info in people_map.items():
+    raw_entries = []
+    if token:
         try:
             res = requests.get(
-                f'{JIBBLE_TRACKING_URL}/timesheets',
+                f'{JIBBLE_TRACKING_URL}/timeEntries',
                 headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-                params={
-                    'personId': person_id,
-                    'from': date_from,
-                    'to': date_to,
-                },
+                params={'from': date_from, 'to': date_to, '$top': 1000},
                 timeout=15,
             )
-            if res.status_code != 200:
-                continue
-            data = res.json()
-            entries = data if isinstance(data, list) else data.get('value', data.get('data', []))
-
-            for entry in entries:
-                # Each entry is one day's summary
-                date      = entry.get('date') or entry.get('belongsToDate') or date_from
-                worked    = int(entry.get('workedSeconds') or entry.get('totalSeconds') or entry.get('duration') or 0)
-                first_in  = entry.get('firstIn') or entry.get('startTime') or entry.get('clockIn')
-                last_out  = entry.get('lastOut') or entry.get('endTime') or entry.get('clockOut')
-                is_ongoing = not bool(last_out)
-
-                # If no pre-computed seconds, compute from firstIn/lastOut
-                if worked == 0 and first_in:
-                    try:
-                        s = dt.fromisoformat(first_in.replace('Z', '+00:00'))
-                        e = dt.fromisoformat(last_out.replace('Z', '+00:00')) if last_out else now
-                        worked = max(0, int((e - s).total_seconds()))
-                    except Exception:
-                        pass
-
-                if worked > 0:
-                    fetched_any = True
-                    result.append({
-                        'personName':   person_info.get('fullName', person_id),
-                        'position':     person_info.get('positionName', ''),
-                        'date':         date,
-                        'totalSeconds': worked,
-                        'startTime':    first_in,
-                        'endTime':      last_out,
-                        'activityName': person_info.get('activityName', ''),
-                        'isOngoing':    is_ongoing,
-                    })
+            if res.status_code == 200:
+                raw_entries = res.json().get('value', [])
         except Exception:
-            continue
-
-    if fetched_any:
-        return sorted(result, key=lambda r: (r['personName'], r['date']))
-
-    # ── Fallback: rebuild from raw timeEntries ────────────────────────────────
-    raw_entries = []
-    try:
-        res = requests.get(
-            f'{JIBBLE_TRACKING_URL}/timeEntries',
-            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-            params={'from': date_from, 'to': date_to, '$top': 1000},
-            timeout=15,
-        )
-        if res.status_code == 200:
-            raw_entries = res.json().get('value', [])
-    except Exception:
-        pass
+            pass
 
     if not raw_entries:
         raw_entries = get_attendance(date_from, date_to)
 
-    # Collect all entries per (person, date) — include ALL statuses
-    sessions = {}   # (person_id, date) -> [{'in': dt, 'out': dt|None}]
-    open_ins  = {}
+    people = get_employees()
+    people_map = {p['id']: p for p in people if p.get('isActive')}
+    now = dt.now(timezone.utc)
 
-    for entry in sorted(raw_entries, key=lambda e: e.get('time') or e.get('localTime') or ''):
+    # ── Deduplicate: same person + type + belongsToDate, keep Active over Archived
+    # Jibble creates an Archived copy when a manual edit happens.
+    # Key = (personId, type, belongsToDate) — keep the Active one if both exist.
+    dedup = {}
+    for entry in raw_entries:
         person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
         entry_type = entry.get('type', '')
         time_str   = entry.get('time') or entry.get('localTime')
         belongs_to = entry.get('belongsToDate') or (time_str[:10] if time_str else None)
+        status     = entry.get('status', 'Active')
 
-        if not person_id or not time_str or not belongs_to:
+        if not person_id or not time_str or not belongs_to or entry_type not in ('In', 'Out'):
             continue
         if not (date_from <= belongs_to <= date_to):
             continue
-        if entry_type not in ('In', 'Out'):
-            continue
+
+        key = (person_id, entry_type, belongs_to)
+        if key not in dedup:
+            dedup[key] = entry
+        else:
+            # Prefer Active over Archived; if both same status, prefer later updatedAt
+            existing = dedup[key]
+            existing_active = existing.get('status', 'Active') == 'Active'
+            this_active     = status == 'Active'
+            if this_active and not existing_active:
+                dedup[key] = entry
+            elif this_active == existing_active:
+                # same status — keep the one with the more recent updatedAt
+                existing_updated = existing.get('updatedAt', '')
+                this_updated     = entry.get('updatedAt', '')
+                if this_updated > existing_updated:
+                    dedup[key] = entry
+
+    clean_entries = list(dedup.values())
+
+    # ── Pair In/Out per person per day ────────────────────────────────────────
+    sessions = {}   # (person_id, date) -> [{'in': dt, 'out': dt|None}]
+    open_ins  = {}  # person_id -> {'in': dt, 'date': str}
+
+    for entry in sorted(clean_entries, key=lambda e: e.get('time') or e.get('localTime') or ''):
+        person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
+        entry_type = entry.get('type', '')
+        time_str   = entry.get('time') or entry.get('localTime')
+        belongs_to = entry.get('belongsToDate') or (time_str[:10] if time_str else None)
 
         try:
             t = dt.fromisoformat(time_str.replace('Z', '+00:00'))
@@ -247,20 +212,25 @@ def get_timesheets(date_from=None, date_to=None):
 
         if entry_type == 'In':
             if person_id in open_ins:
+                # Close previous open session before starting new one
                 prev = open_ins[person_id]
                 pk = (person_id, prev['date'])
                 sessions.setdefault(pk, []).append({'in': prev['in'], 'out': t})
             open_ins[person_id] = {'in': t, 'date': belongs_to}
+
         elif entry_type == 'Out':
             if person_id in open_ins:
                 in_data = open_ins.pop(person_id)
                 pk = (person_id, in_data['date'])
                 sessions.setdefault(pk, []).append({'in': in_data['in'], 'out': t})
 
+    # Still clocked in
     for person_id, in_data in open_ins.items():
         pk = (person_id, in_data['date'])
         sessions.setdefault(pk, []).append({'in': in_data['in'], 'out': None})
 
+    # ── Build one row per (person, date) ──────────────────────────────────────
+    result = []
     for (person_id, date), pairs in sorted(sessions.items()):
         person_info   = people_map.get(person_id, {})
         total_seconds = 0
@@ -292,7 +262,29 @@ def get_timesheets(date_from=None, date_to=None):
                 'isOngoing':    is_ongoing,
             })
 
-    return sorted(result, key=lambda r: (r['personName'], r['date']))
+    # ── Fallback for today using /people ──────────────────────────────────────
+    if not result and date_from == today:
+        for p in people:
+            if not p.get('isActive') or p.get('latestTimeEntryType') != 'In':
+                continue
+            try:
+                s = dt.fromisoformat(p['latestTimeEntryTime'].replace('Z', '+00:00'))
+                seconds = max(0, int((now - s).total_seconds()))
+                if seconds > 0:
+                    result.append({
+                        'personName':   p.get('fullName', ''),
+                        'position':     p.get('positionName', ''),
+                        'date':         today,
+                        'totalSeconds': seconds,
+                        'startTime':    p['latestTimeEntryTime'],
+                        'endTime':      None,
+                        'activityName': p.get('activityName', ''),
+                        'isOngoing':    True,
+                    })
+            except Exception:
+                pass
+
+    return result
 
 def get_employees():
     """All employees/people from Jibble"""
