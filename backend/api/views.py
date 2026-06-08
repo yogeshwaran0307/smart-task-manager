@@ -2751,7 +2751,11 @@ def jibble_live_attendance(request):
 def jibble_attendance(request):
     date_from = request.GET.get('from', str(datetime.date.today()))
     date_to   = request.GET.get('to',   str(datetime.date.today()))
-    data = get_attendance(date_from, date_to)
+    today = str(datetime.date.today())
+    if date_from == today and date_to == today:
+        data = get_who_is_in()
+    else:
+        data = get_attendance(date_from, date_to)
     return JsonResponse({'attendance': data})
 
 @csrf_exempt
@@ -2828,14 +2832,15 @@ def jibble_import_users(request):
         last_name = parts[1] if len(parts) > 1 else ''
         
         # Create user with default password
-        u = User.objects.create_user(
+        u = User(
             username=username,
-            password='Welcome@123',
             first_name=first_name,
             last_name=last_name,
             role='employee',
             bio=f'Jibble: {position}',
         )
+        u.set_password('Welcome@123')
+        u.save()
         created.append({'name': full_name, 'username': username})
     
     return JsonResponse({
