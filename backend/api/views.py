@@ -2744,7 +2744,18 @@ def channel_member_detail(request, channel_id, user_id):
 
 @csrf_exempt
 def jibble_live_attendance(request):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
     data = get_who_is_in()
+    
+    # If admin/manager/HOD — return all
+    # If employee — return only their own
+    if not (_is_manager(user) or _is_hod(user)):
+        full_name = f"{user.first_name} {user.last_name}".strip()
+        data = [a for a in data if 
+                full_name.lower() in (a.get('name') or '').lower()]
+    
     return JsonResponse({'attendance': data})
 
 @csrf_exempt
@@ -2774,6 +2785,14 @@ def jibble_timesheets(request):
     date_from = request.GET.get('from', str(datetime.date.today()))
     date_to   = request.GET.get('to',   str(datetime.date.today()))
     data = get_timesheets(date_from, date_to)
+    
+    # If admin/manager — return all data
+    # If employee — filter by name match
+    if not (_is_manager(user) or _is_hod(user)):
+        full_name = f"{user.first_name} {user.last_name}".strip()
+        data = [t for t in data if 
+                full_name.lower() in (t.get('personName') or t.get('name') or '').lower()]
+    
     return JsonResponse({'timesheets': data})
 
 @csrf_exempt
