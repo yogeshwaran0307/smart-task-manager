@@ -241,9 +241,17 @@ def get_timesheets(date_from=None, date_to=None):
         for pair in pairs:
             in_t, out_t = pair['in'], pair['out']
             if out_t:
-                total_seconds += max(0, int((out_t - in_t).total_seconds()))
-                if last_out is None or out_t > last_out:
-                    last_out = out_t
+                try:
+                    day_end = dt.fromisoformat(f"{date}T23:59:59+05:30").astimezone(timezone.utc)
+                    capped_out = min(out_t, day_end)
+                    # Only show endTime if it's a real clock-out, not a day-end cap
+                    real_out = out_t if out_t < day_end else None
+                except Exception:
+                    capped_out = out_t
+                    real_out = out_t
+                total_seconds += max(0, int((capped_out - in_t).total_seconds()))
+                if real_out and (last_out is None or real_out > last_out):
+                    last_out = real_out
             else:
                 total_seconds += max(0, int((now - in_t).total_seconds()))
                 is_ongoing = True
