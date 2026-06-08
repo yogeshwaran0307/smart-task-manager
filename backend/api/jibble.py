@@ -131,25 +131,91 @@ def get_attendance(date_from=None, date_to=None):
 
 
 def get_timesheets(date_from=None, date_to=None):
-    """Work hours timesheets for a date range"""
+    """Work hours timesheets - built from people's time entries"""
     if not date_from:
         date_from = str(datetime.date.today())
     if not date_to:
         date_to = str(datetime.date.today())
     
-    # Try multiple endpoints
-    result = jibble_get_tracking('/timesheets', params={'from': date_from, 'to': date_to})
-    if not result:
-        result = jibble_get_tracking('/timesheets/summary', params={'from': date_from, 'to': date_to})
-    if not result:
-        result = jibble_get('/timesheets', params={'from': date_from, 'to': date_to})
-    if result is None:
-        return []
-    if isinstance(result, list):
-        return result
-    return result.get('value', result.get('data', result.get('timesheets', [])))
-
-
+    # Jibble doesn't have a simple timesheets endpoint
+    # Build timesheet data from time entries per person
+    people = get_employees()
+    result = []
+    
+    for p in people:
+        if not p.get('isActive'):
+            continue
+        
+        person_id = p.get('id')
+        name = p.get('fullName', '')
+        position = p.get('positionName', '')
+        
+        # Get time entries for this person
+        entries = jibble_get_tracking(
+            f'/timeEntries',
+            params={
+                'personId': person_id,
+                'from': date_from,
+                'to': date_to,
+            }
+        )
+        
+        if not entries:
+            entries = jibble_get(
+                f'/attendance/{person_id}',
+                params={'from': date_from, 'to': date_to}
+            )
+        
+        if not entries:
+            continue
+            
+        if isinstance(entries, dict):
+            entries = entries.get('value', entries.get('data', []))
+        
+        # Calculate total seconds
+        total_seconds = 0
+        clock_in = None
+        clock_out = None
+        
+        for entry in (entries or []):
+            start = entry.get('startTime') or entry.get('clockIn')
+            end = entry.get('endTime') or entry.get('clockOut')
+            if start and end:
+                try:
+                    from datetime import datetime as dt
+                    s = dt.fromisoformat(start.replace('Z', '+00:00'))
+                    e = dt.fromisoformat(end.replace('Z', '+00:00'))
+                    total_seconds += int((e - s).total_seconds())
+                    if not clock_in:
+                        clock_in = start
+                    clock_out = end
+                except Exception:
+                    pass
+        
+        if total_seconds > 0 or p.get('latestTimeEntryType') == 'In':
+            # For ongoing sessions, calculate from clock in to now
+            if p.get('latestTimeEntryType') == 'In' and p.get('latestTimeEntryTime'):
+                try:
+                    from datetime import datetime as dt, timezone
+                    s = dt.fromisoformat(p['latestTimeEntryTime'].replace('Z', '+00:00'))
+                    now = dt.now(timezone.utc)
+                    total_seconds += int((now - s).total_seconds())
+                    clock_in = p['latestTimeEntryTime']
+                except Exception:
+                    pass
+            
+            result.append({
+                'personName': name,
+                'position': position,
+                'date': date_from,
+                'totalSeconds': total_seconds,
+                'startTime': clock_in,
+                'endTime': clock_out,
+                'activityName': p.get('activityName', ''),
+                'isOngoing': p.get('latestTimeEntryType') == 'In',
+            })
+    
+    return result
 def get_employees():
     """All employees/people from Jibble"""
     result = jibble_get_tracking('/people')
