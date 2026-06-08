@@ -18,9 +18,12 @@ async function fetchTimesheets(dateFrom, dateTo) {
 }
 
 async function fetchAttendance(dateFrom, dateTo) {
-  const res = await fetch(`${API}/api/jibble/attendance/?from=${dateFrom}&to=${dateTo}`, {
-    headers: getAuthHeader(),
-  });
+  const today = new Date().toISOString().split('T')[0];
+  const isToday = dateFrom === today && dateTo === today;
+  const url = isToday
+    ? `${API}/api/jibble/live/`
+    : `${API}/api/jibble/attendance/?from=${dateFrom}&to=${dateTo}`;
+  const res = await fetch(url, { headers: getAuthHeader() });
   const data = await res.json();
   return data.attendance || [];
 }
