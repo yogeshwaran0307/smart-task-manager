@@ -2786,6 +2786,15 @@ def jibble_timesheets(request):
     date_from = request.GET.get('from') or request.GET.get('date_from')
     date_to   = request.GET.get('to')   or request.GET.get('date_to')
     data = get_timesheets(date_from=date_from, date_to=date_to)
+
+    # Non-managers/admins can only see their own timesheet
+    if not (_is_manager(user) or _is_hod(user)):
+        full_name = f"{user.first_name} {user.last_name}".strip().lower()
+        data = [
+            row for row in data
+            if full_name in (row.get('personName') or '').strip().lower()
+        ]
+
     return JsonResponse({'timesheets': data})
 
 @csrf_exempt
