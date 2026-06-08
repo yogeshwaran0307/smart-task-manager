@@ -5,8 +5,9 @@ import datetime
 # ─────────────────────────────────────────────────────────────
 # JIBBLE API CONFIG
 # ─────────────────────────────────────────────────────────────
-JIBBLE_TOKEN_URL = 'https://identity.prod.jibble.io/connect/token'
-JIBBLE_BASE_URL  = 'https://time-attendance.prod.jibble.io/v1'
+JIBBLE_TOKEN_URL     = 'https://identity.prod.jibble.io/connect/token'
+JIBBLE_BASE_URL      = 'https://time-attendance.prod.jibble.io/v1'
+JIBBLE_TRACKING_URL  = 'https://time-tracking.prod.jibble.io/v1'
 
 _cached_token     = None
 _token_expires_at = None
@@ -66,6 +67,28 @@ def jibble_get(endpoint, params=None):
         return None
 
 
+def jibble_get_tracking(endpoint, params=None):
+    """Use time-tracking base URL for People/Timesheets endpoints"""
+    try:
+        token = get_jibble_token()
+        if not token:
+            return None
+        res = requests.get(
+            f'{JIBBLE_TRACKING_URL}{endpoint}',
+            headers={
+                'Authorization': f'Bearer {token}',
+                'Content-Type':  'application/json',
+            },
+            params=params,
+            timeout=10,
+        )
+        if res.status_code == 200:
+            return res.json()
+        return None
+    except Exception:
+        return None
+
+
 # ─────────────────────────────────────────────────────────────
 # JIBBLE DATA FUNCTIONS
 # ─────────────────────────────────────────────────────────────
@@ -73,6 +96,8 @@ def jibble_get(endpoint, params=None):
 def get_who_is_in():
     """Who is currently clocked in right now — live"""
     result = jibble_get('/attendance/now')
+    if result is None:
+        result = jibble_get_tracking('/attendance/now')
     if result is None:
         return []
     if isinstance(result, list):
@@ -86,10 +111,9 @@ def get_attendance(date_from=None, date_to=None):
         date_from = str(datetime.date.today())
     if not date_to:
         date_to = str(datetime.date.today())
-    result = jibble_get('/attendance', params={
-        'from': date_from,
-        'to':   date_to,
-    })
+    result = jibble_get('/attendance', params={'from': date_from, 'to': date_to})
+    if result is None:
+        result = jibble_get_tracking('/attendance', params={'from': date_from, 'to': date_to})
     if result is None:
         return []
     if isinstance(result, list):
@@ -103,10 +127,7 @@ def get_timesheets(date_from=None, date_to=None):
         date_from = str(datetime.date.today())
     if not date_to:
         date_to = str(datetime.date.today())
-    result = jibble_get('/timesheets', params={
-        'from': date_from,
-        'to':   date_to,
-    })
+    result = jibble_get_tracking('/timesheets', params={'from': date_from, 'to': date_to})
     if result is None:
         return []
     if isinstance(result, list):
@@ -116,7 +137,7 @@ def get_timesheets(date_from=None, date_to=None):
 
 def get_employees():
     """All employees/people from Jibble"""
-    result = jibble_get('/people')
+    result = jibble_get_tracking('/people')
     if result is None:
         return []
     if isinstance(result, list):
@@ -170,8 +191,12 @@ def test_connection():
             'error': 'Could not get token — check JIBBLE_KEY_ID and JIBBLE_KEY_SECRET'
         }
     employees = get_employees()
+    attendance = get_who_is_in()
     return {
         'connected': True,
         'employee_count': len(employees),
-        'message': f'✅ Connected to Jibble — {len(employees)} employees found'
+        'attendance_count': len(attendance),
+        'employees_sample': employees[:2],
+        'attendance_sample': attendance[:2],
+        'message': f'✅ Connected to Jibble — {len(employees)} employees, {len(attendance)} clocked in'
     }
