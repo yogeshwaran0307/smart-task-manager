@@ -142,14 +142,26 @@ def get_timesheets(date_from=None, date_to=None):
     raw_entries = []
     if token:
         try:
-            res = requests.get(
-                f'{JIBBLE_TRACKING_URL}/timeEntries',
-                headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-                params={'from': date_from, 'to': date_to, '$top': 1000},
-                timeout=15,
-            )
-            if res.status_code == 200:
-                raw_entries = res.json().get('value', [])
+            # Fetch all pages using nextLink pagination
+            url = f'{JIBBLE_TRACKING_URL}/timeEntries'
+            params = {'from': date_from, 'to': date_to, '$top': 500}
+            headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+            page = 0
+            while url and page < 20:  # max 20 pages = 10,000 entries
+                res = requests.get(url, headers=headers, params=params, timeout=15)
+                if res.status_code != 200:
+                    break
+                data = res.json()
+                entries = data.get('value', [])
+                raw_entries.extend(entries)
+                # Follow nextLink for pagination
+                next_url = data.get('@odata.nextLink') or data.get('nextLink')
+                if next_url and len(entries) > 0:
+                    url = next_url
+                    params = {}  # nextLink already has params
+                else:
+                    break
+                page += 1
         except Exception:
             pass
 
@@ -241,17 +253,9 @@ def get_timesheets(date_from=None, date_to=None):
         for pair in pairs:
             in_t, out_t = pair['in'], pair['out']
             if out_t:
-                try:
-                    day_end = dt.fromisoformat(f"{date}T23:59:59+05:30").astimezone(timezone.utc)
-                    capped_out = min(out_t, day_end)
-                    # Only show endTime if it's a real clock-out, not a day-end cap
-                    real_out = out_t if out_t < day_end else None
-                except Exception:
-                    capped_out = out_t
-                    real_out = out_t
-                total_seconds += max(0, int((capped_out - in_t).total_seconds()))
-                if real_out and (last_out is None or real_out > last_out):
-                    last_out = real_out
+                total_seconds += max(0, int((out_t - in_t).total_seconds()))
+                if last_out is None or out_t > last_out:
+                    last_out = out_t
             else:
                 total_seconds += max(0, int((now - in_t).total_seconds()))
                 is_ongoing = True
