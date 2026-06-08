@@ -94,15 +94,24 @@ def jibble_get_tracking(endpoint, params=None):
 # ─────────────────────────────────────────────────────────────
 
 def get_who_is_in():
-    """Who is currently clocked in right now — live"""
-    result = jibble_get('/attendance/now')
-    if result is None:
-        result = jibble_get_tracking('/attendance/now')
-    if result is None:
-        return []
-    if isinstance(result, list):
-        return result
-    return result.get('value', result.get('data', []))
+    """Who is currently clocked in — derived from people's latestTimeEntryType"""
+    people = get_employees()
+    result = []
+    for p in people:
+        if not p.get('isActive'):
+            continue
+        entry_type = p.get('latestTimeEntryType', '')
+        result.append({
+            'name': p.get('fullName', ''),
+            'position': p.get('positionName', ''),
+            'isIn': entry_type == 'In',
+            'clockIn': p.get('latestTimeEntryTime') if entry_type == 'In' else None,
+            'clockOut': p.get('latestTimeEntryTime') if entry_type == 'Out' else None,
+            'activity': p.get('activityName', ''),
+            'project': p.get('projectName', ''),
+            'id': p.get('id', ''),
+        })
+    return result
 
 
 def get_attendance(date_from=None, date_to=None):
