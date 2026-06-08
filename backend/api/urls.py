@@ -72,4 +72,5 @@ urlpatterns = [
     path('jibble/employees/',  jibble_employees),
     path('jibble/timesheets/', jibble_timesheets),
     path('jibble/test/',       jibble_test),
+    path('jibble/debug/',      jibble_debug),
 ]
