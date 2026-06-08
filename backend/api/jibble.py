@@ -136,50 +136,52 @@ def get_timesheets(date_from=None, date_to=None):
         date_from = str(datetime.date.today())
     if not date_to:
         date_to = str(datetime.date.today())
-    
-    # Jibble doesn't have a simple timesheets endpoint
-    # Build timesheet data from time entries per person
+
     people = get_employees()
     result = []
-    
+
     for p in people:
         if not p.get('isActive'):
             continue
-        
+
         person_id = p.get('id')
         name = p.get('fullName', '')
         position = p.get('positionName', '')
-        
-        # Get time entries for this person
+
+        # Try time entries endpoint with date range
         entries = jibble_get_tracking(
-            f'/timeEntries',
+            '/timeEntries',
             params={
                 'personId': person_id,
                 'from': date_from,
                 'to': date_to,
             }
         )
-        
+
         if not entries:
-            entries = jibble_get(
-                f'/attendance/{person_id}',
-                params={'from': date_from, 'to': date_to}
+            entries = jibble_get_tracking(
+                '/timeEntries',
+                params={
+                    'from': date_from,
+                    'to': date_to,
+                }
             )
-        
-        if not entries:
-            continue
-            
+
         if isinstance(entries, dict):
             entries = entries.get('value', entries.get('data', []))
-        
-        # Calculate total seconds
+
         total_seconds = 0
         clock_in = None
         clock_out = None
-        
+
         for entry in (entries or []):
+            # Filter by person
+            if entry.get('personId') and entry.get('personId') != person_id:
+                continue
+            
             start = entry.get('startTime') or entry.get('clockIn')
             end = entry.get('endTime') or entry.get('clockOut')
+            
             if start and end:
                 try:
                     from datetime import datetime as dt
@@ -191,19 +193,31 @@ def get_timesheets(date_from=None, date_to=None):
                     clock_out = end
                 except Exception:
                     pass
-        
-        if total_seconds > 0 or p.get('latestTimeEntryType') == 'In':
-            # For ongoing sessions, calculate from clock in to now
-            if p.get('latestTimeEntryType') == 'In' and p.get('latestTimeEntryTime'):
+            elif start and not end:
+                # Ongoing session
                 try:
                     from datetime import datetime as dt, timezone
-                    s = dt.fromisoformat(p['latestTimeEntryTime'].replace('Z', '+00:00'))
+                    s = dt.fromisoformat(start.replace('Z', '+00:00'))
                     now = dt.now(timezone.utc)
                     total_seconds += int((now - s).total_seconds())
-                    clock_in = p['latestTimeEntryTime']
+                    if not clock_in:
+                        clock_in = start
                 except Exception:
                     pass
-            
+
+        # Fallback: use latestTimeEntryTime for today
+        today = str(datetime.date.today())
+        if total_seconds == 0 and date_from == today and p.get('latestTimeEntryType') == 'In':
+            try:
+                from datetime import datetime as dt, timezone
+                s = dt.fromisoformat(p['latestTimeEntryTime'].replace('Z', '+00:00'))
+                now = dt.now(timezone.utc)
+                total_seconds = int((now - s).total_seconds())
+                clock_in = p['latestTimeEntryTime']
+            except Exception:
+                pass
+
+        if total_seconds > 0:
             result.append({
                 'personName': name,
                 'position': position,
@@ -214,8 +228,9 @@ def get_timesheets(date_from=None, date_to=None):
                 'activityName': p.get('activityName', ''),
                 'isOngoing': p.get('latestTimeEntryType') == 'In',
             })
-    
+
     return result
+
 def get_employees():
     """All employees/people from Jibble"""
     result = jibble_get_tracking('/people')
