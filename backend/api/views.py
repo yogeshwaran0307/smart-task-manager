@@ -2777,179 +2777,16 @@ def jibble_employees(request):
     data = get_employees()
     return JsonResponse({'employees': data})
 
-def get_timesheets(date_from=None, date_to=None):
-    """Work hours timesheets - one row per person per day"""
-    from datetime import datetime as dt, timezone, timedelta
-
-    today = str(datetime.date.today())
-    if not date_from:
-        date_from = today
-    if not date_to:
-        date_to = today
-
-    token = get_jibble_token()
-    raw_entries = []
-    if token:
-        try:
-            res = requests.get(
-                f'{JIBBLE_TRACKING_URL}/timeEntries',
-                headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-                params={'from': date_from, 'to': date_to, '$top': 1000},
-                timeout=15,
-            )
-            if res.status_code == 200:
-                raw_entries = res.json().get('value', [])
-        except Exception:
-            pass
-
-    if not raw_entries:
-        raw_entries = get_attendance(date_from, date_to)
-
-    people = get_employees()
-    people_map = {p['id']: p for p in people if p.get('isActive')}
-    now = dt.now(timezone.utc)
-
-    # ── Filter to only In/Out entries within the date range ───────────────────
-    # ── Filter to only In/Out entries within the date range ───────────────────
-    filtered = []
-    for entry in raw_entries:
-        entry_type = entry.get('type', '')
-        time_str   = entry.get('time') or entry.get('localTime')
-        belongs_to = entry.get('belongsToDate') or (time_str[:10] if time_str else None)
-        person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
-
-        if not person_id or not time_str or not belongs_to:
-            continue
-        if entry_type not in ('In', 'Out'):
-            continue
-
-        # Include entry if its belongsToDate is in range OR
-        # if it's an Out entry for a day that started in range
-        if belongs_to > date_to:
-            continue
-        # Allow Out entries from day after date_from (they close sessions from date_from)
-        if belongs_to < date_from:
-            # Only skip if it's more than 1 day before range
-            from datetime import date as d_
-            try:
-                bd = datetime.date.fromisoformat(belongs_to)
-                df = datetime.date.fromisoformat(date_from)
-                if (df - bd).days > 1:
-                    continue
-            except Exception:
-                continue
-
-        filtered.append(entry)
-
-    # ── Sort by time ──────────────────────────────────────────────────────────
-    filtered.sort(key=lambda e: e.get('time') or e.get('localTime') or '')
-
-    # ── Pair In/Out per person, capped at end of belongsToDate ───────────────
-    # sessions[(person_id, date)] = list of (in_dt, out_dt)
-    sessions  = {}
-    open_ins  = {}  # person_id -> {'in': dt, 'date': str}
-
-    for entry in filtered:
-        person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
-        entry_type = entry.get('type', '')
-        time_str   = entry.get('time') or entry.get('localTime')
-        belongs_to = entry.get('belongsToDate') or time_str[:10]
-
-        try:
-            t = dt.fromisoformat(time_str.replace('Z', '+00:00'))
-        except Exception:
-            continue
-
-        if entry_type == 'In':
-            if person_id in open_ins:
-                # Close previous open In — cap at end of its belongsToDate
-                prev = open_ins[person_id]
-                prev_date = prev['date']
-                # Cap out at 23:59:59 of that day (UTC+5:30 = UTC+0 subtract 5:30)
-                try:
-                    day_end = dt.fromisoformat(f"{prev_date}T23:59:59+05:30").astimezone(timezone.utc)
-                except Exception:
-                    day_end = prev['in'] + timedelta(hours=12)
-                cap_out = min(t, day_end)
-                pk = (person_id, prev_date)
-                sessions.setdefault(pk, []).append((prev['in'], cap_out))
-            open_ins[person_id] = {'in': t, 'date': belongs_to}
-
-        elif entry_type == 'Out':
-            if person_id in open_ins:
-                in_data = open_ins.pop(person_id)
-                pk = (person_id, in_data['date'])
-                sessions.setdefault(pk, []).append((in_data['in'], t))
-
-    # Handle still-open sessions (currently clocked in)
-    for person_id, in_data in open_ins.items():
-        belongs_to = in_data['date']
-        if belongs_to == today:
-            # Active today — count up to now
-            sessions.setdefault((person_id, belongs_to), []).append((in_data['in'], None))
-        else:
-            # Old open session with no Out — cap at end of that day
-            try:
-                day_end = dt.fromisoformat(f"{belongs_to}T23:59:59+05:30").astimezone(timezone.utc)
-            except Exception:
-                day_end = in_data['in'] + timedelta(hours=12)
-            sessions.setdefault((person_id, belongs_to), []).append((in_data['in'], day_end))
-
-    # ── Build one row per (person, date) ──────────────────────────────────────
-    result = []
-    for (person_id, date), pairs in sorted(sessions.items()):
-        person_info   = people_map.get(person_id, {})
-        total_seconds = 0
-        first_in      = None
-        last_out      = None
-        is_ongoing    = False
-
-        for in_t, out_t in pairs:
-            if out_t:
-                total_seconds += max(0, int((out_t - in_t).total_seconds()))
-                if last_out is None or out_t > last_out:
-                    last_out = out_t
-            else:
-                total_seconds += max(0, int((now - in_t).total_seconds()))
-                is_ongoing = True
-            if first_in is None or in_t < first_in:
-                first_in = in_t
-
-        if total_seconds > 0:
-            result.append({
-                'personName':   person_info.get('fullName', person_id),
-                'position':     person_info.get('positionName', ''),
-                'date':         date,
-                'totalSeconds': total_seconds,
-                'startTime':    first_in.isoformat() if first_in else None,
-                'endTime':      last_out.isoformat() if last_out else None,
-                'activityName': person_info.get('activityName', ''),
-                'isOngoing':    is_ongoing,
-            })
-
-    # ── Fallback for today using /people ──────────────────────────────────────
-    if not result and date_from == today:
-        for p in people:
-            if not p.get('isActive') or p.get('latestTimeEntryType') != 'In':
-                continue
-            try:
-                s = dt.fromisoformat(p['latestTimeEntryTime'].replace('Z', '+00:00'))
-                seconds = max(0, int((now - s).total_seconds()))
-                if seconds > 0:
-                    result.append({
-                        'personName':   p.get('fullName', ''),
-                        'position':     p.get('positionName', ''),
-                        'date':         today,
-                        'totalSeconds': seconds,
-                        'startTime':    p['latestTimeEntryTime'],
-                        'endTime':      None,
-                        'activityName': p.get('activityName', ''),
-                        'isOngoing':    True,
-                    })
-            except Exception:
-                pass
-
-    return result
+@csrf_exempt
+def jibble_timesheets(request):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
+    from .jibble import get_timesheets
+    date_from = request.GET.get('from') or request.GET.get('date_from')
+    date_to   = request.GET.get('to')   or request.GET.get('date_to')
+    data = get_timesheets(date_from=date_from, date_to=date_to)
+    return JsonResponse({'timesheets': data})
 
 @csrf_exempt
 def jibble_test(request):
@@ -2962,90 +2799,14 @@ def debug_jibble(request):
     user = _get_session_user(request)
     if not user:
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
-    
-    from .jibble import get_jibble_token, JIBBLE_TRACKING_URL
-    import requests
-    
-    token = get_jibble_token()
-    if not token:
-        return JsonResponse({'error': 'No token'}, status=500)
-    
-    res = requests.get(
-        f'{JIBBLE_TRACKING_URL}/timeEntries',
-        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-        params={'from': '2026-06-02', 'to': '2026-06-02', '$top': 100},
-        timeout=15,
-    )
-    return JsonResponse(res.json(), safe=False)
-@csrf_exempt
-def jibble_import_users(request):
-    user = _get_session_user(request)
-    if not user or not _is_manager(user):
-        return JsonResponse({'error': 'Unauthorized'}, status=403)
-    
-    employees = get_employees()
-    created = []
-    skipped = []
-    
-    for emp in employees:
-        full_name = emp.get('fullName', '').strip()
-        jibble_id = emp.get('id', '')
-        position = emp.get('positionName', '')
-        
-        if not full_name:
-            continue
-        
-        # Generate username from full name
-        username = full_name.lower().replace(' ', '_').replace('.', '').replace('-', '_')
-        username = ''.join(c for c in username if c.isalnum() or c == '_')[:30]
-        
-        # Skip if username already exists
-        if User.objects.filter(username=username).exists():
-            skipped.append(full_name)
-            continue
-        
-        # Split name
-        parts = full_name.split(' ', 1)
-        first_name = parts[0]
-        last_name = parts[1] if len(parts) > 1 else ''
-        
-        # Create user with default password
-        u = User(
-            username=username,
-            first_name=first_name,
-            last_name=last_name,
-            role='employee',
-            bio=f'Jibble: {position}',
-        )
-        u.set_password('Welcome@123')
-        u.save()
-        created.append({'name': full_name, 'username': username})
-    
-    return JsonResponse({
-        'created': created,
-        'skipped': skipped,
-        'created_count': len(created),
-        'skipped_count': len(skipped),
-        'default_password': 'Welcome@123',
-    })
-@csrf_exempt
-def debug_jibble(request):
-    user = _get_session_user(request)
-    if not user:
-        return JsonResponse({'error': 'Unauthenticated'}, status=401)
     from .jibble import get_jibble_token, JIBBLE_TRACKING_URL
     import requests as req
     token = get_jibble_token()
     if not token:
         return JsonResponse({'error': 'No token'}, status=500)
-    
-    # Try different param formats
     results = {}
-    
     for param_style in [
         {'from': '2026-06-03', 'to': '2026-06-04', '$top': 100},
-        {'dateFrom': '2026-06-03', 'dateTo': '2026-06-04', '$top': 100},
-        {'startDate': '2026-06-03', 'endDate': '2026-06-04', '$top': 100},
         {'$filter': "belongsToDate ge '2026-06-03' and belongsToDate le '2026-06-04'", '$top': 100},
     ]:
         try:
@@ -3064,5 +2825,44 @@ def debug_jibble(request):
             }
         except Exception as ex:
             results[str(param_style)] = {'error': str(ex)}
-    
     return JsonResponse(results)
+
+@csrf_exempt
+def jibble_import_users(request):
+    user = _get_session_user(request)
+    if not user or not _is_manager(user):
+        return JsonResponse({'error': 'Unauthorized'}, status=403)
+    employees = get_employees()
+    created = []
+    skipped = []
+    for emp in employees:
+        full_name = emp.get('fullName', '').strip()
+        jibble_id = emp.get('id', '')
+        position  = emp.get('positionName', '')
+        if not full_name:
+            continue
+        username = full_name.lower().replace(' ', '_').replace('.', '').replace('-', '_')
+        username = ''.join(c for c in username if c.isalnum() or c == '_')[:30]
+        if User.objects.filter(username=username).exists():
+            skipped.append(full_name)
+            continue
+        parts      = full_name.split(' ', 1)
+        first_name = parts[0]
+        last_name  = parts[1] if len(parts) > 1 else ''
+        u = User(
+            username=username,
+            first_name=first_name,
+            last_name=last_name,
+            role='employee',
+            bio=f'Jibble: {position}',
+        )
+        u.set_password('Welcome@123')
+        u.save()
+        created.append({'name': full_name, 'username': username})
+    return JsonResponse({
+        'created':         created,
+        'skipped':         skipped,
+        'created_count':   len(created),
+        'skipped_count':   len(skipped),
+        'default_password': 'Welcome@123',
+    })
