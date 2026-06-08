@@ -2802,26 +2802,25 @@ def jibble_test(request):
     return JsonResponse(data)
 
 @csrf_exempt
-def jibble_debug(request):
-    from .jibble import jibble_get, jibble_get_tracking
-    import datetime
-    today = str(datetime.date.today())
-    week_start = str(datetime.date.today() - datetime.timedelta(days=7))
-    month_start = str(datetime.date.today().replace(day=1))
-
-    entries1 = jibble_get_tracking('/timeEntries', params={'from': week_start, 'to': today})
-    entries2 = jibble_get('/timeEntries', params={'from': week_start, 'to': today})
-    entries3 = jibble_get_tracking('/timeEntries', params={'from': month_start, 'to': today})
-    sheets1  = jibble_get_tracking('/timesheets', params={'dateFrom': month_start, 'dateTo': today})
-    sheets2  = jibble_get_tracking('/timesheets', params={'startDate': month_start, 'endDate': today})
-
-    return JsonResponse({
-        'timeEntries_tracking_week': entries1,
-        'timeEntries_base_week': entries2,
-        'timeEntries_tracking_month': entries3,
-        'timesheets_dateFrom': sheets1,
-        'timesheets_startDate': sheets2,
-    }, safe=False)
+def debug_jibble(request):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
+    
+    from .jibble import get_jibble_token, JIBBLE_TRACKING_URL
+    import requests
+    
+    token = get_jibble_token()
+    if not token:
+        return JsonResponse({'error': 'No token'}, status=500)
+    
+    res = requests.get(
+        f'{JIBBLE_TRACKING_URL}/timeEntries',
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+        params={'from': '2026-06-02', 'to': '2026-06-02', '$top': 100},
+        timeout=15,
+    )
+    return JsonResponse(res.json(), safe=False)
 @csrf_exempt
 def jibble_import_users(request):
     user = _get_session_user(request)

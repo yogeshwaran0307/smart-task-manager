@@ -74,4 +74,5 @@ urlpatterns = [
     path('jibble/test/',       jibble_test),
     path('jibble/debug/',      jibble_debug),
     path('jibble/import-users/', jibble_import_users),
+    path('api/debug-jibble/', views.debug_jibble),
 ]
