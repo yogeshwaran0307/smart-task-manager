@@ -2751,9 +2751,6 @@ def jibble_live_attendance(request):
 
 @csrf_exempt
 def jibble_attendance(request):
-    user = _get_session_user(request)
-    if not user:
-        return JsonResponse({'error': 'Unauthenticated'}, status=401)
     date_from = request.GET.get('from', str(datetime.date.today()))
     date_to   = request.GET.get('to',   str(datetime.date.today()))
     data = get_attendance(date_from, date_to)
