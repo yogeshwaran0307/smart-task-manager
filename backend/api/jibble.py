@@ -131,7 +131,7 @@ def get_attendance(date_from=None, date_to=None):
 
 
 def get_timesheets(date_from=None, date_to=None):
-    """Work hours timesheets - built from attendance records for a date range"""
+    """Work hours timesheets - built from raw time entries for a date range"""
     from datetime import datetime as dt, timezone
 
     today = str(datetime.date.today())
@@ -140,87 +140,132 @@ def get_timesheets(date_from=None, date_to=None):
     if not date_to:
         date_to = today
 
-    # ── 1. Fetch attendance records (covers all date ranges) ──────────────────
-    attendance_records = get_attendance(date_from, date_to)
+    # ── 1. Fetch raw time entries from the tracking API ───────────────────────
+    token = get_jibble_token()
+    if not token:
+        return []
 
-    # ── 2. Build a lookup of active people by id ──────────────────────────────
+    try:
+        res = requests.get(
+            f'{JIBBLE_TRACKING_URL}/timeEntries',
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+            params={'from': date_from, 'to': date_to, '$top': 1000},
+            timeout=15,
+        )
+        raw_entries = res.json().get('value', []) if res.status_code == 200 else []
+    except Exception:
+        raw_entries = []
+
+    # ── 2. Fallback: try attendance endpoint ──────────────────────────────────
+    if not raw_entries:
+        raw_entries = get_attendance(date_from, date_to)
+
+    # ── 3. Build people lookup ────────────────────────────────────────────────
     people = get_employees()
     people_map = {p['id']: p for p in people if p.get('isActive')}
 
-    # ── 3. Aggregate seconds per person across all records in the range ───────
-    aggregated = {}  # person_id -> dict
+    # ── 4. Pair In/Out entries per person per day ─────────────────────────────
+    # Structure: sessions[person_id][date] = list of (in_time, out_time or None)
+    sessions = {}   # person_id -> {date -> [{'in': dt, 'out': dt|None}]}
+    open_ins  = {}  # person_id -> last unmatched In entry
 
-    for rec in attendance_records:
-        person_id = (
-            rec.get('personId') or
-            rec.get('memberId') or
-            rec.get('userId') or
-            rec.get('id')
-        )
-        name = (
-            rec.get('personName') or
-            rec.get('memberName') or
-            rec.get('fullName') or
-            (people_map.get(person_id, {}).get('fullName', '') if person_id else '')
-        )
-        position = (
-            rec.get('positionName') or
-            (people_map.get(person_id, {}).get('positionName', '') if person_id else '')
-        )
+    # Sort entries by time so we process them in order
+    def entry_time(e):
+        return e.get('time') or e.get('localTime') or ''
 
-        start = rec.get('startTime') or rec.get('clockIn') or rec.get('timeIn')
-        end   = rec.get('endTime')   or rec.get('clockOut') or rec.get('timeOut')
-        rec_date = rec.get('date') or date_from
+    for entry in sorted(raw_entries, key=entry_time):
+        person_id = entry.get('personId') or entry.get('memberId') or entry.get('userId')
+        if not person_id:
+            continue
 
-        seconds = 0
-        if start and end:
-            try:
-                s = dt.fromisoformat(start.replace('Z', '+00:00'))
-                e = dt.fromisoformat(end.replace('Z', '+00:00'))
-                seconds = max(0, int((e - s).total_seconds()))
-            except Exception:
-                pass
-        elif start and not end:
-            # Active session — count up to now
-            try:
-                s = dt.fromisoformat(start.replace('Z', '+00:00'))
-                seconds = max(0, int((dt.now(timezone.utc) - s).total_seconds()))
-            except Exception:
-                pass
+        entry_type = entry.get('type', '')  # "In", "Out", "StartBreak", "EndBreak"
+        time_str   = entry.get('time') or entry.get('localTime')
+        belongs_to = entry.get('belongsToDate') or (time_str[:10] if time_str else date_from)
+        status     = entry.get('status', 'Active')
 
-        # Pre-computed duration field (some Jibble responses include it)
-        if seconds == 0:
-            seconds = int(
-                rec.get('totalSeconds') or
-                rec.get('workedSeconds') or
-                rec.get('duration') or 0
-            )
+        # Skip archived duplicate entries (Jibble archives superseded entries)
+        if status == 'Archived':
+            continue
 
-        key = person_id or name
-        if key not in aggregated:
-            aggregated[key] = {
-                'personName': name,
-                'position': position,
-                'date': rec_date,
-                'totalSeconds': 0,
-                'startTime': start,
-                'endTime': end,
-                'activityName': rec.get('activityName', ''),
-                'isOngoing': not bool(end),
+        if not time_str:
+            continue
+
+        try:
+            t = dt.fromisoformat(time_str.replace('Z', '+00:00'))
+        except Exception:
+            continue
+
+        if person_id not in sessions:
+            sessions[person_id] = {}
+        if belongs_to not in sessions[person_id]:
+            sessions[person_id][belongs_to] = []
+
+        if entry_type == 'In':
+            open_ins[person_id] = {'in': t, 'date': belongs_to}
+        elif entry_type == 'Out':
+            if person_id in open_ins:
+                in_data = open_ins.pop(person_id)
+                in_date = in_data['date']
+                if in_date not in sessions[person_id]:
+                    sessions[person_id][in_date] = []
+                sessions[person_id][in_date].append({'in': in_data['in'], 'out': t})
+            # else: Out without In, skip
+
+    # Handle still-open sessions (person is currently clocked in)
+    now = dt.now(timezone.utc)
+    for person_id, in_data in open_ins.items():
+        in_date = in_data['date']
+        if person_id not in sessions:
+            sessions[person_id] = {}
+        if in_date not in sessions[person_id]:
+            sessions[person_id][in_date] = []
+        sessions[person_id][in_date].append({'in': in_data['in'], 'out': None})
+
+    # ── 5. Aggregate total seconds per person across the date range ───────────
+    aggregated = {}
+
+    for person_id, dates in sessions.items():
+        person_info = people_map.get(person_id, {})
+        name     = person_info.get('fullName', person_id)
+        position = person_info.get('positionName', '')
+
+        total_seconds = 0
+        first_in  = None
+        last_out  = None
+        is_ongoing = False
+
+        for date, pairs in dates.items():
+            for pair in pairs:
+                in_t  = pair['in']
+                out_t = pair['out']
+                if out_t:
+                    total_seconds += max(0, int((out_t - in_t).total_seconds()))
+                    if first_in is None or in_t < first_in:
+                        first_in = in_t
+                    if last_out is None or out_t > last_out:
+                        last_out = out_t
+                else:
+                    # Active right now
+                    total_seconds += max(0, int((now - in_t).total_seconds()))
+                    if first_in is None or in_t < first_in:
+                        first_in = in_t
+                    is_ongoing = True
+
+        if total_seconds > 0:
+            aggregated[person_id] = {
+                'personName':   name,
+                'position':     position,
+                'date':         date_from,
+                'totalSeconds': total_seconds,
+                'startTime':    first_in.isoformat() if first_in else None,
+                'endTime':      last_out.isoformat() if last_out else None,
+                'activityName': person_info.get('activityName', ''),
+                'isOngoing':    is_ongoing,
             }
-        aggregated[key]['totalSeconds'] += seconds
-        # Keep earliest clock-in and latest clock-out across the range
-        if start and (not aggregated[key]['startTime'] or start < aggregated[key]['startTime']):
-            aggregated[key]['startTime'] = start
-        if end and (not aggregated[key]['endTime'] or end > aggregated[key]['endTime']):
-            aggregated[key]['endTime'] = end
-        if not end:
-            aggregated[key]['isOngoing'] = True
 
-    result = [v for v in aggregated.values() if v['totalSeconds'] > 0]
+    result = list(aggregated.values())
 
-    # ── 4. Fallback for today: use latestTimeEntryTime from /people if ────────
-    #       attendance returned nothing (e.g. free-plan Jibble limits)
+    # ── 6. Fallback for today using /people latestTimeEntryTime ──────────────
     if not result and date_from == today:
         for p in people:
             if not p.get('isActive'):
@@ -229,17 +274,17 @@ def get_timesheets(date_from=None, date_to=None):
                 continue
             try:
                 s = dt.fromisoformat(p['latestTimeEntryTime'].replace('Z', '+00:00'))
-                seconds = max(0, int((dt.now(timezone.utc) - s).total_seconds()))
+                seconds = max(0, int((now - s).total_seconds()))
                 if seconds > 0:
                     result.append({
-                        'personName': p.get('fullName', ''),
-                        'position': p.get('positionName', ''),
-                        'date': today,
+                        'personName':   p.get('fullName', ''),
+                        'position':     p.get('positionName', ''),
+                        'date':         today,
                         'totalSeconds': seconds,
-                        'startTime': p['latestTimeEntryTime'],
-                        'endTime': None,
+                        'startTime':    p['latestTimeEntryTime'],
+                        'endTime':      None,
                         'activityName': p.get('activityName', ''),
-                        'isOngoing': True,
+                        'isOngoing':    True,
                     })
             except Exception:
                 pass
