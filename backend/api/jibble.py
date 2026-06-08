@@ -128,15 +128,26 @@ def get_attendance(date_from=None, date_to=None):
     if isinstance(result, list):
         return result
     return result.get('value', result.get('data', []))
+
 def get_timesheets(date_from=None, date_to=None):
     """Work hours timesheets - one row per person per day"""
-    from datetime import datetime as dt, timezone
+    from datetime import datetime as dt, timezone, timedelta
 
     today = str(datetime.date.today())
     if not date_from:
         date_from = today
     if not date_to:
         date_to = today
+
+    # Fetch 1 extra day on each side to catch Out entries that span midnight
+    try:
+        df = datetime.date.fromisoformat(date_from)
+        dt_ = datetime.date.fromisoformat(date_to)
+        fetch_from = str(df - datetime.timedelta(days=1))
+        fetch_to   = str(dt_ + datetime.timedelta(days=1))
+    except Exception:
+        fetch_from = date_from
+        fetch_to   = date_to
 
     token = get_jibble_token()
     raw_entries = []
@@ -145,7 +156,7 @@ def get_timesheets(date_from=None, date_to=None):
             res = requests.get(
                 f'{JIBBLE_TRACKING_URL}/timeEntries',
                 headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-                params={'from': date_from, 'to': date_to, '$top': 1000},
+                params={'from': fetch_from, 'to': fetch_to, '$top': 1000},
                 timeout=15,
             )
             if res.status_code == 200:
@@ -160,46 +171,25 @@ def get_timesheets(date_from=None, date_to=None):
     people_map = {p['id']: p for p in people if p.get('isActive')}
     now = dt.now(timezone.utc)
 
-    # ── Deduplicate: same person + type + belongsToDate, keep Active over Archived
-    # Jibble creates an Archived copy when a manual edit happens.
-    # Key = (personId, type, belongsToDate) — keep the Active one if both exist.
-    dedup = {}
+    # ── Keep only In/Out entries, skip breaks ─────────────────────────────────
+    filtered = []
     for entry in raw_entries:
-        person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
         entry_type = entry.get('type', '')
+        person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
         time_str   = entry.get('time') or entry.get('localTime')
-        belongs_to = entry.get('belongsToDate') or (time_str[:10] if time_str else None)
-        status     = entry.get('status', 'Active')
-
-        if not person_id or not time_str or not belongs_to or entry_type not in ('In', 'Out'):
+        if not person_id or not time_str or entry_type not in ('In', 'Out'):
             continue
-        if not (date_from <= belongs_to <= date_to):
-            continue
+        filtered.append(entry)
 
-        key = (person_id, entry_type, belongs_to)
-        if key not in dedup:
-            dedup[key] = entry
-        else:
-            # Prefer Active over Archived; if both same status, prefer later updatedAt
-            existing = dedup[key]
-            existing_active = existing.get('status', 'Active') == 'Active'
-            this_active     = status == 'Active'
-            if this_active and not existing_active:
-                dedup[key] = entry
-            elif this_active == existing_active:
-                # same status — keep the one with the more recent updatedAt
-                existing_updated = existing.get('updatedAt', '')
-                this_updated     = entry.get('updatedAt', '')
-                if this_updated > existing_updated:
-                    dedup[key] = entry
+    # ── Sort by time ──────────────────────────────────────────────────────────
+    filtered.sort(key=lambda e: e.get('time') or e.get('localTime') or '')
 
-    clean_entries = list(dedup.values())
-
-    # ── Pair In/Out per person per day ────────────────────────────────────────
-    sessions = {}   # (person_id, date) -> [{'in': dt, 'out': dt|None}]
+    # ── Pair In/Out entries per person ────────────────────────────────────────
+    # sessions[(person_id, belongsToDate)] = list of (in_dt, out_dt or None)
+    sessions = {}
     open_ins  = {}  # person_id -> {'in': dt, 'date': str}
 
-    for entry in sorted(clean_entries, key=lambda e: e.get('time') or e.get('localTime') or ''):
+    for entry in filtered:
         person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
         entry_type = entry.get('type', '')
         time_str   = entry.get('time') or entry.get('localTime')
@@ -212,41 +202,60 @@ def get_timesheets(date_from=None, date_to=None):
 
         if entry_type == 'In':
             if person_id in open_ins:
-                # Close previous open session before starting new one
+                # Close previous open session
                 prev = open_ins[person_id]
                 pk = (person_id, prev['date'])
-                sessions.setdefault(pk, []).append({'in': prev['in'], 'out': t})
+                sessions.setdefault(pk, []).append((prev['in'], t))
             open_ins[person_id] = {'in': t, 'date': belongs_to}
 
         elif entry_type == 'Out':
             if person_id in open_ins:
                 in_data = open_ins.pop(person_id)
                 pk = (person_id, in_data['date'])
-                sessions.setdefault(pk, []).append({'in': in_data['in'], 'out': t})
+                sessions.setdefault(pk, []).append((in_data['in'], t))
 
-    # Still clocked in
+    # Handle still-open sessions
     for person_id, in_data in open_ins.items():
         pk = (person_id, in_data['date'])
-        sessions.setdefault(pk, []).append({'in': in_data['in'], 'out': None})
+        sessions.setdefault(pk, []).append((in_data['in'], None))
 
-    # ── Build one row per (person, date) ──────────────────────────────────────
+    # ── Build one row per (person, date) — only for dates in requested range ──
     result = []
     for (person_id, date), pairs in sorted(sessions.items()):
+        # Only include rows within the requested date range
+        if not (date_from <= date <= date_to):
+            continue
+
         person_info   = people_map.get(person_id, {})
         total_seconds = 0
         first_in      = None
         last_out      = None
         is_ongoing    = False
 
-        for pair in pairs:
-            in_t, out_t = pair['in'], pair['out']
+        for in_t, out_t in pairs:
             if out_t:
-                total_seconds += max(0, int((out_t - in_t).total_seconds()))
-                if last_out is None or out_t > last_out:
-                    last_out = out_t
+                # Cap out_t at end of this date (23:59:59 IST = 18:29:59 UTC)
+                try:
+                    day_end = dt.fromisoformat(f"{date}T23:59:59+05:30").astimezone(timezone.utc)
+                    capped_out = min(out_t, day_end)
+                except Exception:
+                    capped_out = out_t
+                total_seconds += max(0, int((capped_out - in_t).total_seconds()))
+                if last_out is None or capped_out > last_out:
+                    last_out = capped_out
             else:
-                total_seconds += max(0, int((now - in_t).total_seconds()))
-                is_ongoing = True
+                if date == today:
+                    total_seconds += max(0, int((now - in_t).total_seconds()))
+                    is_ongoing = True
+                else:
+                    # Old open session — cap at end of that day
+                    try:
+                        day_end = dt.fromisoformat(f"{date}T23:59:59+05:30").astimezone(timezone.utc)
+                        total_seconds += max(0, int((day_end - in_t).total_seconds()))
+                        if last_out is None or day_end > last_out:
+                            last_out = day_end
+                    except Exception:
+                        pass
             if first_in is None or in_t < first_in:
                 first_in = in_t
 
@@ -285,7 +294,6 @@ def get_timesheets(date_from=None, date_to=None):
                 pass
 
     return result
-
 def get_employees():
     """All employees/people from Jibble"""
     result = jibble_get_tracking('/people')
