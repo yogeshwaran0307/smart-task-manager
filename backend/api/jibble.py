@@ -136,12 +136,18 @@ def get_timesheets(date_from=None, date_to=None):
         date_from = str(datetime.date.today())
     if not date_to:
         date_to = str(datetime.date.today())
+    
+    # Try multiple endpoints
     result = jibble_get_tracking('/timesheets', params={'from': date_from, 'to': date_to})
+    if not result:
+        result = jibble_get_tracking('/timesheets/summary', params={'from': date_from, 'to': date_to})
+    if not result:
+        result = jibble_get('/timesheets', params={'from': date_from, 'to': date_to})
     if result is None:
         return []
     if isinstance(result, list):
         return result
-    return result.get('value', result.get('data', []))
+    return result.get('value', result.get('data', result.get('timesheets', [])))
 
 
 def get_employees():

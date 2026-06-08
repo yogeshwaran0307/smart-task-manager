@@ -2803,21 +2803,22 @@ def jibble_test(request):
 
 @csrf_exempt
 def jibble_debug(request):
-    """Returns raw Jibble API response to inspect field names"""
-    from .jibble import jibble_get
+    from .jibble import jibble_get, jibble_get_tracking
     import datetime
     today = str(datetime.date.today())
-    live    = jibble_get('/attendance/now')
-    attend  = jibble_get('/attendance', params={'from': today, 'to': today})
-    sheets  = jibble_get('/timesheets', params={'from': today, 'to': today})
-    people  = jibble_get('/people')
+    week_start = str(datetime.date.today() - datetime.timedelta(days=7))
+    
+    sheets1 = jibble_get_tracking('/timesheets', params={'from': week_start, 'to': today})
+    sheets2 = jibble_get_tracking('/timesheets/summary', params={'from': week_start, 'to': today})
+    sheets3 = jibble_get('/timesheets', params={'from': week_start, 'to': today})
+    people  = jibble_get_tracking('/people')
+    
     return JsonResponse({
-        'live_raw':       live,
-        'attendance_raw': attend,
-        'timesheets_raw': sheets,
-        'people_raw':     people,
+        'timesheets_tracking': sheets1,
+        'timesheets_summary': sheets2,
+        'timesheets_base': sheets3,
+        'people_count': len(people) if isinstance(people, list) else people,
     }, safe=False)
-
 @csrf_exempt
 def jibble_import_users(request):
     user = _get_session_user(request)
