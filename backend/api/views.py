@@ -2872,3 +2872,20 @@ def jibble_import_users(request):
         'skipped_count': len(skipped),
         'default_password': 'Welcome@123',
     })
+@csrf_exempt
+def debug_jibble(request):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
+    from .jibble import get_jibble_token, JIBBLE_TRACKING_URL
+    import requests as req
+    token = get_jibble_token()
+    if not token:
+        return JsonResponse({'error': 'No token'}, status=500)
+    res = req.get(
+        f'{JIBBLE_TRACKING_URL}/timeEntries',
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+        params={'from': '2026-06-02', 'to': '2026-06-02', '$top': 100},
+        timeout=15,
+    )
+    return JsonResponse(res.json(), safe=False)
