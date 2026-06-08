@@ -2807,17 +2807,20 @@ def jibble_debug(request):
     import datetime
     today = str(datetime.date.today())
     week_start = str(datetime.date.today() - datetime.timedelta(days=7))
-    
-    sheets1 = jibble_get_tracking('/timesheets', params={'from': week_start, 'to': today})
-    sheets2 = jibble_get_tracking('/timesheets/summary', params={'from': week_start, 'to': today})
-    sheets3 = jibble_get('/timesheets', params={'from': week_start, 'to': today})
-    people  = jibble_get_tracking('/people')
-    
+    month_start = str(datetime.date.today().replace(day=1))
+
+    entries1 = jibble_get_tracking('/timeEntries', params={'from': week_start, 'to': today})
+    entries2 = jibble_get('/timeEntries', params={'from': week_start, 'to': today})
+    entries3 = jibble_get_tracking('/timeEntries', params={'from': month_start, 'to': today})
+    sheets1  = jibble_get_tracking('/timesheets', params={'dateFrom': month_start, 'dateTo': today})
+    sheets2  = jibble_get_tracking('/timesheets', params={'startDate': month_start, 'endDate': today})
+
     return JsonResponse({
-        'timesheets_tracking': sheets1,
-        'timesheets_summary': sheets2,
-        'timesheets_base': sheets3,
-        'people_count': len(people) if isinstance(people, list) else people,
+        'timeEntries_tracking_week': entries1,
+        'timeEntries_base_week': entries2,
+        'timeEntries_tracking_month': entries3,
+        'timesheets_dateFrom': sheets1,
+        'timesheets_startDate': sheets2,
     }, safe=False)
 @csrf_exempt
 def jibble_import_users(request):
