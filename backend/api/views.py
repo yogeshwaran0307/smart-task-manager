@@ -2794,3 +2794,54 @@ def jibble_debug(request):
         'timesheets_raw': sheets,
         'people_raw':     people,
     }, safe=False)
+
+@csrf_exempt
+def jibble_import_users(request):
+    user = _get_session_user(request)
+    if not user or not _is_manager(user):
+        return JsonResponse({'error': 'Unauthorized'}, status=403)
+    
+    employees = get_employees()
+    created = []
+    skipped = []
+    
+    for emp in employees:
+        full_name = emp.get('fullName', '').strip()
+        jibble_id = emp.get('id', '')
+        position = emp.get('positionName', '')
+        
+        if not full_name:
+            continue
+        
+        # Generate username from full name
+        username = full_name.lower().replace(' ', '_').replace('.', '').replace('-', '_')
+        username = ''.join(c for c in username if c.isalnum() or c == '_')[:30]
+        
+        # Skip if username already exists
+        if User.objects.filter(username=username).exists():
+            skipped.append(full_name)
+            continue
+        
+        # Split name
+        parts = full_name.split(' ', 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ''
+        
+        # Create user with default password
+        u = User.objects.create_user(
+            username=username,
+            password='Welcome@123',
+            first_name=first_name,
+            last_name=last_name,
+            role='employee',
+            bio=f'Jibble: {position}',
+        )
+        created.append({'name': full_name, 'username': username})
+    
+    return JsonResponse({
+        'created': created,
+        'skipped': skipped,
+        'created_count': len(created),
+        'skipped_count': len(skipped),
+        'default_password': 'Welcome@123',
+    })

@@ -23,6 +23,7 @@ import TeamWorkload from './components/dashboard/TeamWorkload';
 import DepartmentManagement from './components/admin/DepartmentManagement';
 import RoleManagement from './components/admin/RoleManagement';
 import { ProfilePage, SettingsPage } from './components/auth/Profile';
+import Timesheet from './components/timesheet/Timesheet';
 
 
 function RequireAuth({ children }) {
@@ -148,7 +149,10 @@ function AppRoutes() {
       <Route path="/profile" element={<RequireAuth><Layout><ProfilePage /></Layout></RequireAuth>} />
       <Route path="/settings" element={<RequireAuth><Layout><SettingsPage /></Layout></RequireAuth>} />
 
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/timesheet" element={<RequireAuth><Layout><Timesheet /></Layout></RequireAuth>} />
+      
+      <Route path="*" element={<Navigate to="/dashboard" replace />} /> 
+      
     </Routes>
   );
 }

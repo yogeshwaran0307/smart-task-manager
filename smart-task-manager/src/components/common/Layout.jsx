@@ -7,7 +7,7 @@ import {
   FiGrid, FiFolder, FiCheckSquare, FiUsers, FiActivity,
   FiMessageSquare, FiSettings, FiLogOut, FiMenu, FiX,
   FiTrash2, FiBarChart2, FiShield, FiBell, FiSearch,
-  FiChevronDown, FiUser, FiLayers, FiInbox, FiThumbsUp, FiTrendingUp,
+  FiChevronDown, FiUser, FiLayers, FiInbox, FiThumbsUp, FiTrendingUp, FiClock,
 } from 'react-icons/fi';
 
 function NavLink({ to, icon: Icon, label, end }) {
@@ -161,6 +161,7 @@ export default function Layout({ children }) {
 
         <p className="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 mt-4">Workspace</p>
         <NavLink to="/messages" icon={FiMessageSquare} label="Messages" />
+        <NavLink to="/timesheet" icon={FiClock} label="Timesheet" />
         {canViewAnalytics && (
           <NavLink to="/analytics" icon={FiBarChart2} label="Analytics" />
         )}

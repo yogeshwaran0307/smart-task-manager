@@ -73,4 +73,5 @@ urlpatterns = [
     path('jibble/timesheets/', jibble_timesheets),
     path('jibble/test/',       jibble_test),
     path('jibble/debug/',      jibble_debug),
+    path('jibble/import-users/', jibble_import_users),
 ]
