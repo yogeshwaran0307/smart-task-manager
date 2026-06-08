@@ -1,5 +1,3 @@
-
-
 import json, base64, hmac, hashlib, os, uuid
 import datetime 
 from .jibble import (
@@ -2779,3 +2777,20 @@ def jibble_test(request):
     from .jibble import test_connection
     data = test_connection()
     return JsonResponse(data)
+
+@csrf_exempt
+def jibble_debug(request):
+    """Returns raw Jibble API response to inspect field names"""
+    from .jibble import jibble_get
+    import datetime
+    today = str(datetime.date.today())
+    live    = jibble_get('/attendance/now')
+    attend  = jibble_get('/attendance', params={'from': today, 'to': today})
+    sheets  = jibble_get('/timesheets', params={'from': today, 'to': today})
+    people  = jibble_get('/people')
+    return JsonResponse({
+        'live_raw':       live,
+        'attendance_raw': attend,
+        'timesheets_raw': sheets,
+        'people_raw':     people,
+    }, safe=False)
