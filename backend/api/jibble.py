@@ -94,7 +94,7 @@ def jibble_get_tracking(endpoint, params=None):
 # ─────────────────────────────────────────────────────────────
 
 def get_who_is_in():
-    """All active employees with their current clock-in/out status"""
+    """Who is currently clocked in — derived from people's latestTimeEntryType"""
     people = get_employees()
     result = []
     for p in people:
@@ -142,14 +142,24 @@ def get_timesheets(date_from=None, date_to=None):
     raw_entries = []
     if token:
         try:
-            res = requests.get(
-                f'{JIBBLE_TRACKING_URL}/timeEntries',
-                headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-                params={'from': date_from, 'to': date_to, '$top': 1000},
-                timeout=15,
-            )
-            if res.status_code == 200:
-                raw_entries = res.json().get('value', [])
+            url = f'{JIBBLE_TRACKING_URL}/timeEntries'
+            params = {'from': date_from, 'to': date_to, '$top': 500}
+            headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+            page = 0
+            while url and page < 20:
+                res = requests.get(url, headers=headers, params=params, timeout=15)
+                if res.status_code != 200:
+                    break
+                data = res.json()
+                entries = data.get('value', [])
+                raw_entries.extend(entries)
+                next_url = data.get('@odata.nextLink') or data.get('nextLink')
+                if next_url and len(entries) > 0:
+                    url = next_url
+                    params = {}
+                else:
+                    break
+                page += 1
         except Exception:
             pass
 
@@ -160,9 +170,8 @@ def get_timesheets(date_from=None, date_to=None):
     people_map = {p['id']: p for p in people if p.get('isActive')}
     now = dt.now(timezone.utc)
 
-    # ── Deduplicate: same person + type + belongsToDate, keep Active over Archived
-    # Jibble creates an Archived copy when a manual edit happens.
-    # Key = (personId, type, belongsToDate) — keep the Active one if both exist.
+    # ── Deduplicate: remove Archived copies of edited entries only
+    # Use entry ID — keep Active version over Archived for same entry
     dedup = {}
     for entry in raw_entries:
         person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
@@ -170,28 +179,24 @@ def get_timesheets(date_from=None, date_to=None):
         time_str   = entry.get('time') or entry.get('localTime')
         belongs_to = entry.get('belongsToDate') or (time_str[:10] if time_str else None)
         status     = entry.get('status', 'Active')
+        entry_id   = entry.get('id', '')
 
         if not person_id or not time_str or not belongs_to or entry_type not in ('In', 'Out'):
             continue
         if not (date_from <= belongs_to <= date_to):
             continue
 
-        key = (person_id, entry_type, belongs_to)
+        # Use minute-level key to catch near-duplicate entries (same person, type, minute)
+        time_minute = time_str[:16] if time_str else ''
+        key = (person_id, entry_type, time_minute)
         if key not in dedup:
             dedup[key] = entry
         else:
-            # Prefer Active over Archived; if both same status, prefer later updatedAt
             existing = dedup[key]
             existing_active = existing.get('status', 'Active') == 'Active'
             this_active     = status == 'Active'
             if this_active and not existing_active:
                 dedup[key] = entry
-            elif this_active == existing_active:
-                # same status — keep the one with the more recent updatedAt
-                existing_updated = existing.get('updatedAt', '')
-                this_updated     = entry.get('updatedAt', '')
-                if this_updated > existing_updated:
-                    dedup[key] = entry
 
     clean_entries = list(dedup.values())
 
