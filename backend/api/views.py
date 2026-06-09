@@ -2805,9 +2805,6 @@ def jibble_test(request):
 
 @csrf_exempt
 def debug_jibble(request):
-    user = _get_session_user(request)
-    if not user:
-        return JsonResponse({'error': 'Unauthenticated'}, status=401)
     from .jibble import get_jibble_token, JIBBLE_TRACKING_URL
     import requests as req
     token = get_jibble_token()
