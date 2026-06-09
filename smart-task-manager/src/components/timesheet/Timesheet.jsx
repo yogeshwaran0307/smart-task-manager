@@ -25,7 +25,10 @@ async function fetchAttendance(dateFrom, dateTo) {
     : `${API}/api/jibble/attendance/?from=${dateFrom}&to=${dateTo}`;
   const res = await fetch(url, { headers: getAuthHeader() });
   const data = await res.json();
-  return data.attendance || [];
+  return {
+    attendance: data.attendance || [],
+    totalEmployees: data.totalEmployees || 0,
+  };
 }
 
 function formatHours(seconds) {
@@ -44,13 +47,11 @@ function formatTime(isoString) {
 
 function formatDate(dateStr) {
   if (!dateStr) return '—';
-  // dateStr is YYYY-MM-DD from backend
   const [y, m, d] = dateStr.split('-');
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return `${d} ${months[parseInt(m)-1]} ${y}`;
 }
 
-// Get local date string YYYY-MM-DD without UTC conversion
 function localDateString(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -68,7 +69,7 @@ function getDateRange(period) {
 
   if (period === 'week') {
     const start = new Date(today);
-    const day = today.getDay(); // 0=Sun, 1=Mon ... 6=Sat
+    const day = today.getDay();
     const daysFromMonday = day === 0 ? 6 : day - 1;
     start.setDate(today.getDate() - daysFromMonday);
     return { from: localDateString(start), to: todayStr };
@@ -87,6 +88,7 @@ export default function Timesheet() {
   const [period, setPeriod] = useState('today');
   const [timesheets, setTimesheets] = useState([]);
   const [attendance, setAttendance] = useState([]);
+  const [totalEmployees, setTotalEmployees] = useState(0);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('attendance');
   const [search, setSearch] = useState('');
@@ -99,12 +101,15 @@ export default function Timesheet() {
     setLoading(true);
     const { from, to } = getDateRange(period);
     try {
-      const [ts, att] = await Promise.all([
+      const [ts, attData] = await Promise.all([
         fetchTimesheets(from, to),
         fetchAttendance(from, to),
       ]);
       setTimesheets(ts);
-      setAttendance(att);
+      setAttendance(attData.attendance);
+      if (attData.totalEmployees > 0) {
+        setTotalEmployees(attData.totalEmployees);
+      }
     } catch {
       setTimesheets([]);
       setAttendance([]);
@@ -140,8 +145,9 @@ export default function Timesheet() {
     !search || (t.personName || t.name || '').toLowerCase().includes(search.toLowerCase())
   );
 
-  const totalIn = attendance.filter(a => a.isIn).length;
+  const totalIn  = attendance.filter(a => a.isIn).length;
   const totalOut = attendance.filter(a => !a.isIn).length;
+  const displayTotal = totalEmployees || attendance.length;
   const totalHours = timesheets.reduce((sum, t) => sum + (t.totalSeconds || 0), 0);
 
   return (
@@ -225,7 +231,7 @@ export default function Timesheet() {
         </div>
         <div className="card p-4">
           <p className="text-xs text-slate-400 mb-1">Total Employees</p>
-          <p className="text-2xl font-bold text-white">{attendance.length}</p>
+          <p className="text-2xl font-bold text-white">{displayTotal}</p>
         </div>
         <div className="card p-4">
           <p className="text-xs text-slate-400 mb-1">Total Hours</p>
