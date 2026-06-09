@@ -90,6 +90,7 @@ export default function Timesheet() {
   const [attendance, setAttendance] = useState([]);
   const [totalEmployees, setTotalEmployees] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [tsLoading, setTsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('attendance');
   const [search, setSearch] = useState('');
   const [importing, setImporting] = useState(false);
@@ -97,28 +98,39 @@ export default function Timesheet() {
 
   const canManage = isAdmin || isManager;
 
-  const load = async () => {
+  // Live attendance — always fetches current status, no date range needed
+  const loadAttendance = async () => {
     setLoading(true);
-    const { from, to } = getDateRange(period);
     try {
-      const [ts, attData] = await Promise.all([
-        fetchTimesheets(from, to),
-        fetchAttendance(from, to),
-      ]);
-      setTimesheets(ts);
+      const attData = await fetchAttendance(localDateString(new Date()), localDateString(new Date()));
       setAttendance(attData.attendance);
-      if (attData.totalEmployees > 0) {
-        setTotalEmployees(attData.totalEmployees);
-      }
+      if (attData.totalEmployees > 0) setTotalEmployees(attData.totalEmployees);
     } catch {
-      setTimesheets([]);
       setAttendance([]);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { load(); }, [period]);
+  // Timesheets — uses period selector date range
+  const loadTimesheets = async () => {
+    setTsLoading(true);
+    const { from, to } = getDateRange(period);
+    try {
+      const ts = await fetchTimesheets(from, to);
+      setTimesheets(ts);
+    } catch {
+      setTimesheets([]);
+    } finally {
+      setTsLoading(false);
+    }
+  };
+
+  // Load attendance once on mount
+  useEffect(() => { loadAttendance(); }, []);
+
+  // Reload timesheets when period changes
+  useEffect(() => { loadTimesheets(); }, [period]);
 
   const handleImport = async () => {
     if (!window.confirm('Import all Jibble employees as users? Default password: Welcome@123')) return;
@@ -159,8 +171,10 @@ export default function Timesheet() {
           <p className="text-sm text-slate-400">Live attendance and work hours from Jibble</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={load} className="btn btn-secondary flex items-center gap-2" disabled={loading}>
-            <FiRefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+          <button onClick={activeTab === 'attendance' ? loadAttendance : loadTimesheets}
+            className="btn btn-secondary flex items-center gap-2"
+            disabled={loading || tsLoading}>
+            <FiRefreshCw size={14} className={(loading || tsLoading) ? 'animate-spin' : ''} /> Refresh
           </button>
           {canManage && (
             <button onClick={handleImport} className="btn btn-primary" disabled={importing}>
@@ -199,27 +213,7 @@ export default function Timesheet() {
         </div>
       )}
 
-      {/* Period Selector */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {['today', 'week', 'month'].map(p => (
-          <button key={p} onClick={() => setPeriod(p)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              period === p ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-            }`}>
-            {p === 'today' ? 'Today' : p === 'week' ? 'This Week' : 'This Month'}
-          </button>
-        ))}
-        <div className="ml-auto">
-          <input
-            className="input w-48"
-            placeholder="Search employee…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-      </div>
-
-      {/* Stats Cards */}
+      {/* Stats Cards — always shows live attendance stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card p-4">
           <p className="text-xs text-slate-400 mb-1">Clocked In</p>
@@ -253,75 +247,109 @@ export default function Timesheet() {
         ))}
       </div>
 
+      {/* Period selector — only shown for Timesheets tab */}
+      {activeTab === 'timesheets' && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {['today', 'week', 'month'].map(p => (
+            <button key={p} onClick={() => setPeriod(p)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                period === p ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+              }`}>
+              {p === 'today' ? 'Today' : p === 'week' ? 'This Week' : 'This Month'}
+            </button>
+          ))}
+          <div className="ml-auto">
+            <input className="input w-48" placeholder="Search employee…"
+              value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+        </div>
+      )}
+
+      {/* Search for attendance tab */}
+      {activeTab === 'attendance' && (
+        <div className="flex justify-end">
+          <input className="input w-48" placeholder="Search employee…"
+            value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+      )}
+
       {/* Content */}
-      {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="animate-spin rounded-full w-8 h-8 border-2 border-slate-600 border-t-indigo-500" />
-        </div>
-      ) : activeTab === 'attendance' ? (
-        <div className="card overflow-hidden">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>Position</th>
-                <th>Status</th>
-                <th>Clock In</th>
-                <th>Clock Out</th>
-                <th>Activity</th>
-                <th>Project</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredAttendance.length === 0 ? (
-                <tr><td colSpan={7} className="text-center text-slate-500 py-8">No attendance data</td></tr>
-              ) : filteredAttendance.map((a, i) => (
-                <tr key={i}>
-                  <td className="font-medium text-white">{a.name}</td>
-                  <td className="text-slate-400">{a.position || '—'}</td>
-                  <td>
-                    <span className={`badge ${a.isIn ? 'badge-active' : 'bg-red-900/30 text-red-400 border border-red-700/40'}`}>
-                      {a.isIn ? '🟢 In' : '🔴 Out'}
-                    </span>
-                  </td>
-                  <td className="text-slate-300">{formatTime(a.clockIn)}</td>
-                  <td className="text-slate-300">{formatTime(a.clockOut)}</td>
-                  <td className="text-slate-400">{a.activity || '—'}</td>
-                  <td className="text-slate-400">{a.project || '—'}</td>
+      {activeTab === 'attendance' ? (
+        loading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="animate-spin rounded-full w-8 h-8 border-2 border-slate-600 border-t-indigo-500" />
+          </div>
+        ) : (
+          <div className="card overflow-hidden">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Position</th>
+                  <th>Status</th>
+                  <th>Clock In</th>
+                  <th>Clock Out</th>
+                  <th>Activity</th>
+                  <th>Project</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filteredAttendance.length === 0 ? (
+                  <tr><td colSpan={7} className="text-center text-slate-500 py-8">No attendance data</td></tr>
+                ) : filteredAttendance.map((a, i) => (
+                  <tr key={i}>
+                    <td className="font-medium text-white">{a.name}</td>
+                    <td className="text-slate-400">{a.position || '—'}</td>
+                    <td>
+                      <span className={`badge ${a.isIn ? 'badge-active' : 'bg-red-900/30 text-red-400 border border-red-700/40'}`}>
+                        {a.isIn ? '🟢 In' : '🔴 Out'}
+                      </span>
+                    </td>
+                    <td className="text-slate-300">{formatTime(a.clockIn)}</td>
+                    <td className="text-slate-300">{formatTime(a.clockOut)}</td>
+                    <td className="text-slate-400">{a.activity || '—'}</td>
+                    <td className="text-slate-400">{a.project || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
       ) : (
-        <div className="card overflow-hidden">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>Date</th>
-                <th>Total Hours</th>
-                <th>Clock In</th>
-                <th>Clock Out</th>
-                <th>Activity</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredTimesheets.length === 0 ? (
-                <tr><td colSpan={6} className="text-center text-slate-500 py-8">No timesheet data</td></tr>
-              ) : filteredTimesheets.map((t, i) => (
-                <tr key={i}>
-                  <td className="font-medium text-white">{t.personName || t.name || '—'}</td>
-                  <td className="text-slate-300">{formatDate(t.date)}</td>
-                  <td className="text-indigo-300 font-semibold">{formatHours(t.totalSeconds || 0)}</td>
-                  <td className="text-slate-300">{formatTime(t.startTime)}</td>
-                  <td className="text-slate-300">{t.endTime ? formatTime(t.endTime) : <span className="text-emerald-400 text-xs">Ongoing</span>}</td>
-                  <td className="text-slate-400">{t.activityName || '—'}</td>
+        tsLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="animate-spin rounded-full w-8 h-8 border-2 border-slate-600 border-t-indigo-500" />
+          </div>
+        ) : (
+          <div className="card overflow-hidden">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Date</th>
+                  <th>Total Hours</th>
+                  <th>Clock In</th>
+                  <th>Clock Out</th>
+                  <th>Activity</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filteredTimesheets.length === 0 ? (
+                  <tr><td colSpan={6} className="text-center text-slate-500 py-8">No timesheet data</td></tr>
+                ) : filteredTimesheets.map((t, i) => (
+                  <tr key={i}>
+                    <td className="font-medium text-white">{t.personName || t.name || '—'}</td>
+                    <td className="text-slate-300">{formatDate(t.date)}</td>
+                    <td className="text-indigo-300 font-semibold">{formatHours(t.totalSeconds || 0)}</td>
+                    <td className="text-slate-300">{formatTime(t.startTime)}</td>
+                    <td className="text-slate-300">{t.endTime ? formatTime(t.endTime) : <span className="text-emerald-400 text-xs">Ongoing</span>}</td>
+                    <td className="text-slate-400">{t.activityName || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
       )}
     </div>
   );
