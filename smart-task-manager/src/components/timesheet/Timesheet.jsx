@@ -51,33 +51,23 @@ function formatDate(isoString) {
 
 function getDateRange(period) {
   const today = new Date();
-  const fmt = (d) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
-
-  const todayStr = fmt(today);
+  const fmt = (d) => d.toISOString().split('T')[0];
 
   if (period === 'today') {
-    return { from: todayStr, to: todayStr };
+    return { from: fmt(today), to: fmt(today) };
   }
-
   if (period === 'week') {
     const start = new Date(today);
-    const day = today.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const day = today.getDay();
     const daysFromMonday = day === 0 ? 6 : day - 1;
     start.setDate(today.getDate() - daysFromMonday);
-    return { from: fmt(start), to: todayStr };
+    return { from: fmt(start), to: fmt(today) };
   }
-
   if (period === 'month') {
     const start = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: fmt(start), to: todayStr };
+    return { from: fmt(start), to: fmt(today) };
   }
-
-  return { from: todayStr, to: todayStr };
+  return { from: fmt(today), to: fmt(today) };
 }
 
 export default function Timesheet() {
