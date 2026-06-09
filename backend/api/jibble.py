@@ -2,9 +2,6 @@ import requests
 import os
 import datetime
 
-# ─────────────────────────────────────────────────────────────
-# JIBBLE API CONFIG
-# ─────────────────────────────────────────────────────────────
 JIBBLE_TOKEN_URL     = 'https://identity.prod.jibble.io/connect/token'
 JIBBLE_BASE_URL      = 'https://time-attendance.prod.jibble.io/v1'
 JIBBLE_TRACKING_URL  = 'https://time-tracking.prod.jibble.io/v1'
@@ -13,16 +10,11 @@ _cached_token     = None
 _token_expires_at = None
 
 
-# ─────────────────────────────────────────────────────────────
-# TOKEN — cached for 50 minutes to avoid rate limits
-# ─────────────────────────────────────────────────────────────
 def get_jibble_token():
     global _cached_token, _token_expires_at
-
     now = datetime.datetime.utcnow()
     if _cached_token and _token_expires_at and now < _token_expires_at:
         return _cached_token
-
     try:
         res = requests.post(
             JIBBLE_TOKEN_URL,
@@ -43,9 +35,6 @@ def get_jibble_token():
         return None
 
 
-# ─────────────────────────────────────────────────────────────
-# SAFE GET WRAPPERS
-# ─────────────────────────────────────────────────────────────
 def jibble_get(endpoint, params=None):
     try:
         token = get_jibble_token()
@@ -82,12 +71,7 @@ def jibble_get_tracking(endpoint, params=None):
         return None
 
 
-# ─────────────────────────────────────────────────────────────
-# JIBBLE DATA FUNCTIONS
-# ─────────────────────────────────────────────────────────────
-
 def get_employees():
-    """All active employees from Jibble"""
     result = jibble_get_tracking('/people')
     if result is None:
         return []
@@ -97,7 +81,6 @@ def get_employees():
 
 
 def get_who_is_in():
-    """All active employees with current clock-in/out status"""
     people = get_employees()
     result = []
     for p in people:
@@ -118,7 +101,6 @@ def get_who_is_in():
 
 
 def get_attendance(date_from=None, date_to=None):
-    """Attendance records for a date range"""
     if not date_from:
         date_from = str(datetime.date.today())
     if not date_to:
@@ -147,9 +129,10 @@ def get_timesheets(date_from=None, date_to=None):
     raw_entries = []
     if token:
         try:
-            # Paginate through all time entries
+            # Fetch ALL entries without date filter (API ignores date params)
+            # Then filter by belongsToDate in Python
             url = f'{JIBBLE_TRACKING_URL}/timeEntries'
-            params = {'from': date_from, 'to': date_to, '$top': 500}
+            params = {'$top': 500}  # NO date params - API ignores them anyway
             headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
             page = 0
             while url and page < 20:
@@ -176,8 +159,7 @@ def get_timesheets(date_from=None, date_to=None):
     people_map = {p['id']: p for p in people if p.get('isActive')}
     now = dt.now(timezone.utc)
 
-    # ── Deduplicate using minute-level key — allows multiple sessions per day
-    # Only removes near-duplicate entries (same person, same type, same minute)
+    # Deduplicate using minute-level key
     dedup = {}
     for entry in raw_entries:
         person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
@@ -188,25 +170,25 @@ def get_timesheets(date_from=None, date_to=None):
 
         if not person_id or not time_str or not belongs_to or entry_type not in ('In', 'Out'):
             continue
+
+        # Filter by date range in Python (since API ignores date params)
         if not (date_from <= belongs_to <= date_to):
             continue
 
-        # Use minute-level key so multiple sessions per day are preserved
         time_minute = time_str[:16] if time_str else ''
         key = (person_id, entry_type, time_minute)
         if key not in dedup:
             dedup[key] = entry
         else:
-            # Prefer Active over Archived
             existing = dedup[key]
             if existing.get('status', 'Active') != 'Active' and status == 'Active':
                 dedup[key] = entry
 
     clean_entries = list(dedup.values())
 
-    # ── Pair In/Out per person per day ────────────────────────────────────────
-    sessions = {}   # (person_id, date) -> [{'in': dt, 'out': dt|None}]
-    open_ins  = {}  # person_id -> {'in': dt, 'date': str}
+    # Pair In/Out per person per day
+    sessions = {}
+    open_ins  = {}
 
     for entry in sorted(clean_entries, key=lambda e: e.get('time') or e.get('localTime') or ''):
         person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
@@ -232,12 +214,12 @@ def get_timesheets(date_from=None, date_to=None):
                 pk = (person_id, in_data['date'])
                 sessions.setdefault(pk, []).append({'in': in_data['in'], 'out': t})
 
-    # Still clocked in — add as open session
+    # Still clocked in
     for person_id, in_data in open_ins.items():
         pk = (person_id, in_data['date'])
         sessions.setdefault(pk, []).append({'in': in_data['in'], 'out': None})
 
-    # ── Build one row per (person, date) ──────────────────────────────────────
+    # Build one row per (person, date)
     result = []
     for (person_id, date), pairs in sorted(sessions.items()):
         person_info   = people_map.get(person_id, {})
@@ -249,7 +231,6 @@ def get_timesheets(date_from=None, date_to=None):
         for pair in pairs:
             in_t, out_t = pair['in'], pair['out']
             if out_t:
-                # Cap at end of day to avoid cross-day overflow
                 try:
                     day_end = dt.fromisoformat(f"{date}T23:59:59+05:30").astimezone(timezone.utc)
                     capped_out = min(out_t, day_end)
@@ -278,7 +259,7 @@ def get_timesheets(date_from=None, date_to=None):
                 'isOngoing':    is_ongoing,
             })
 
-    # ── Fallback for today using /people if no entries found ──────────────────
+    # Fallback for today
     if not result and date_from == today:
         for p in people:
             if not p.get('isActive') or p.get('latestTimeEntryType') != 'In':
