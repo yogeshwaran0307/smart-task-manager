@@ -2750,7 +2750,7 @@ def jibble_live_attendance(request):
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
     data = get_who_is_in()
 
-    # Total active employees regardless of clock status
+    # Total active employees from Jibble (all, regardless of clock status)
     all_employees = get_employees()
     total_employees = len([e for e in all_employees if e.get('isActive')])
 
@@ -2810,6 +2810,9 @@ def jibble_test(request):
 
 @csrf_exempt
 def debug_jibble(request):
+    user = _get_session_user(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthenticated'}, status=401)
     from .jibble import get_jibble_token, JIBBLE_TRACKING_URL
     import requests as req
     token = get_jibble_token()
@@ -2848,7 +2851,6 @@ def jibble_import_users(request):
     skipped = []
     for emp in employees:
         full_name = emp.get('fullName', '').strip()
-        jibble_id = emp.get('id', '')
         position  = emp.get('positionName', '')
         if not full_name:
             continue
@@ -2871,9 +2873,9 @@ def jibble_import_users(request):
         u.save()
         created.append({'name': full_name, 'username': username})
     return JsonResponse({
-        'created':         created,
-        'skipped':         skipped,
-        'created_count':   len(created),
-        'skipped_count':   len(skipped),
+        'created':          created,
+        'skipped':          skipped,
+        'created_count':    len(created),
+        'skipped_count':    len(skipped),
         'default_password': 'Welcome@123',
     })
