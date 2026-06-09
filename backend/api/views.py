@@ -2752,7 +2752,8 @@ def jibble_live_attendance(request):
 
     # Total active employees from Jibble (all, regardless of clock status)
     all_employees = get_employees()
-    total_employees = len([e for e in all_employees if e.get('isActive')])
+    # AFTER
+    total_employees = len(all_employees)
 
     # If admin/manager/HOD — return all
     # If employee — return only their own
