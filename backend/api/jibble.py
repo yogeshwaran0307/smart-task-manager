@@ -144,8 +144,15 @@ def get_timesheets(date_from=None, date_to=None):
     if not date_to:
         date_to = today
 
-    # ── 1. Fetch all time entries (API ignores date params, filter client-side) ─
-    raw = jibble_get_tracking('/timeEntries', params={'from': date_from, 'to': date_to, "$top": 500})
+    # ── 1. Fetch time entries (API ignores date params; fetch recent 500 desc) ──
+    # The API returns oldest-first by default and ignores from/to filters.
+    # We request newest-first so recent weeks/months are always included.
+    raw = jibble_get_tracking('/timeEntries', params={
+        'from': date_from,
+        'to': date_to,
+        '$top': 500,
+        '$orderby': 'time desc',
+    })
     if isinstance(raw, dict):
         all_entries = raw.get('value', raw.get('data', []))
     elif isinstance(raw, list):
@@ -153,7 +160,7 @@ def get_timesheets(date_from=None, date_to=None):
     else:
         all_entries = []
 
-    # Client-side date filter using belongsToDate
+    # Client-side date filter using belongsToDate (API ignores from/to params)
     entries = [
         e for e in all_entries
         if date_from <= (e.get('belongsToDate') or '') <= date_to
