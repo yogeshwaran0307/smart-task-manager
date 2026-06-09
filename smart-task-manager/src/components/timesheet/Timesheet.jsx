@@ -221,7 +221,7 @@ export default function Timesheet() {
         </div>
         <div className="card p-4">
           <p className="text-xs text-slate-400 mb-1">Clocked Out</p>
-          <p className="text-2xl font-bold text-slate-300">{totalOut}</p>
+          <p className="text-2xl font-bold text-red-400">{totalOut}</p>
         </div>
         <div className="card p-4">
           <p className="text-xs text-slate-400 mb-1">Total Employees</p>
@@ -274,8 +274,8 @@ export default function Timesheet() {
                   <td className="font-medium text-white">{a.name}</td>
                   <td className="text-slate-400">{a.position || '—'}</td>
                   <td>
-                    <span className={`badge ${a.isIn ? 'badge-active' : 'bg-slate-600/30 text-slate-400'}`}>
-                      {a.isIn ? '🟢 In' : '⚪ Out'}
+                    <span className={`badge ${a.isIn ? 'badge-active' : 'bg-red-900/30 text-red-400 border border-red-700/40'}`}>
+                      {a.isIn ? '🟢 In' : '🔴 Out'}
                     </span>
                   </td>
                   <td className="text-slate-300">{formatTime(a.clockIn)}</td>
