@@ -94,7 +94,7 @@ def jibble_get_tracking(endpoint, params=None):
 # ─────────────────────────────────────────────────────────────
 
 def get_who_is_in():
-    """Who is currently clocked in — derived from people's latestTimeEntryType"""
+    """All active employees with their current clock-in/out status"""
     people = get_employees()
     result = []
     for p in people:
@@ -129,118 +129,163 @@ def get_attendance(date_from=None, date_to=None):
         return result
     return result.get('value', result.get('data', []))
 def get_timesheets(date_from=None, date_to=None):
-    """Work hours timesheets - one entry per person per day"""
+    """Work hours timesheets - one row per person per day"""
+    from datetime import datetime as dt, timezone
+
+    today = str(datetime.date.today())
     if not date_from:
-        date_from = str(datetime.date.today())
+        date_from = today
     if not date_to:
-        date_to = str(datetime.date.today())
+        date_to = today
+
+    token = get_jibble_token()
+    raw_entries = []
+    if token:
+        try:
+            res = requests.get(
+                f'{JIBBLE_TRACKING_URL}/timeEntries',
+                headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+                params={'from': date_from, 'to': date_to, '$top': 1000},
+                timeout=15,
+            )
+            if res.status_code == 200:
+                raw_entries = res.json().get('value', [])
+        except Exception:
+            pass
+
+    if not raw_entries:
+        raw_entries = get_attendance(date_from, date_to)
 
     people = get_employees()
+    people_map = {p['id']: p for p in people if p.get('isActive')}
+    now = dt.now(timezone.utc)
+
+    # ── Deduplicate: same person + type + belongsToDate, keep Active over Archived
+    # Jibble creates an Archived copy when a manual edit happens.
+    # Key = (personId, type, belongsToDate) — keep the Active one if both exist.
+    dedup = {}
+    for entry in raw_entries:
+        person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
+        entry_type = entry.get('type', '')
+        time_str   = entry.get('time') or entry.get('localTime')
+        belongs_to = entry.get('belongsToDate') or (time_str[:10] if time_str else None)
+        status     = entry.get('status', 'Active')
+
+        if not person_id or not time_str or not belongs_to or entry_type not in ('In', 'Out'):
+            continue
+        if not (date_from <= belongs_to <= date_to):
+            continue
+
+        key = (person_id, entry_type, belongs_to)
+        if key not in dedup:
+            dedup[key] = entry
+        else:
+            # Prefer Active over Archived; if both same status, prefer later updatedAt
+            existing = dedup[key]
+            existing_active = existing.get('status', 'Active') == 'Active'
+            this_active     = status == 'Active'
+            if this_active and not existing_active:
+                dedup[key] = entry
+            elif this_active == existing_active:
+                # same status — keep the one with the more recent updatedAt
+                existing_updated = existing.get('updatedAt', '')
+                this_updated     = entry.get('updatedAt', '')
+                if this_updated > existing_updated:
+                    dedup[key] = entry
+
+    clean_entries = list(dedup.values())
+
+    # ── Pair In/Out per person per day ────────────────────────────────────────
+    sessions = {}   # (person_id, date) -> [{'in': dt, 'out': dt|None}]
+    open_ins  = {}  # person_id -> {'in': dt, 'date': str}
+
+    for entry in sorted(clean_entries, key=lambda e: e.get('time') or e.get('localTime') or ''):
+        person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
+        entry_type = entry.get('type', '')
+        time_str   = entry.get('time') or entry.get('localTime')
+        belongs_to = entry.get('belongsToDate') or (time_str[:10] if time_str else None)
+
+        try:
+            t = dt.fromisoformat(time_str.replace('Z', '+00:00'))
+        except Exception:
+            continue
+
+        if entry_type == 'In':
+            if person_id in open_ins:
+                # Close previous open session before starting new one
+                prev = open_ins[person_id]
+                pk = (person_id, prev['date'])
+                sessions.setdefault(pk, []).append({'in': prev['in'], 'out': t})
+            open_ins[person_id] = {'in': t, 'date': belongs_to}
+
+        elif entry_type == 'Out':
+            if person_id in open_ins:
+                in_data = open_ins.pop(person_id)
+                pk = (person_id, in_data['date'])
+                sessions.setdefault(pk, []).append({'in': in_data['in'], 'out': t})
+
+    # Still clocked in
+    for person_id, in_data in open_ins.items():
+        pk = (person_id, in_data['date'])
+        sessions.setdefault(pk, []).append({'in': in_data['in'], 'out': None})
+
+    # ── Build one row per (person, date) ──────────────────────────────────────
     result = []
+    for (person_id, date), pairs in sorted(sessions.items()):
+        person_info   = people_map.get(person_id, {})
+        total_seconds = 0
+        first_in      = None
+        last_out      = None
+        is_ongoing    = False
 
-    for p in people:
-        if not p.get('isActive'):
-            continue
+        for pair in pairs:
+            in_t, out_t = pair['in'], pair['out']
+            if out_t:
+                total_seconds += max(0, int((out_t - in_t).total_seconds()))
+                if last_out is None or out_t > last_out:
+                    last_out = out_t
+            else:
+                total_seconds += max(0, int((now - in_t).total_seconds()))
+                is_ongoing = True
+            if first_in is None or in_t < first_in:
+                first_in = in_t
 
-        person_id = p.get('id')
-        name = p.get('fullName', '').strip()
-        position = p.get('positionName', '')
+        if total_seconds > 0:
+            result.append({
+                'personName':   person_info.get('fullName', person_id),
+                'position':     person_info.get('positionName', ''),
+                'date':         date,
+                'totalSeconds': total_seconds,
+                'startTime':    first_in.isoformat() if first_in else None,
+                'endTime':      last_out.isoformat() if last_out else None,
+                'activityName': person_info.get('activityName', ''),
+                'isOngoing':    is_ongoing,
+            })
 
-        # Get time entries for date range
-        entries = jibble_get_tracking(
-            '/timeEntries',
-            params={
-                'personId': person_id,
-                'from': date_from,
-                'to': date_to,
-            }
-        )
-
-        if isinstance(entries, dict):
-            entries = entries.get('value', entries.get('data', []))
-
-        if not entries:
-            # Fallback: use latestTimeEntryTime for today only
-            today = str(datetime.date.today())
-            if date_from == today and p.get('latestTimeEntryType') == 'In':
-                try:
-                    from datetime import datetime as dt, timezone
-                    s = dt.fromisoformat(
-                        p['latestTimeEntryTime'].replace('Z', '+00:00')
-                    )
-                    now = dt.now(timezone.utc)
-                    total_seconds = int((now - s).total_seconds())
-                    result.append({
-                        'personName': name,
-                        'position': position,
-                        'date': today,
-                        'totalSeconds': total_seconds,
-                        'startTime': p['latestTimeEntryTime'],
-                        'endTime': None,
-                        'activityName': p.get('activityName', ''),
-                        'isOngoing': True,
-                    })
-                except Exception:
-                    pass
-            continue
-
-        # Group entries by date
-        from collections import defaultdict
-        daily = defaultdict(lambda: {
-            'seconds': 0,
-            'clock_in': None,
-            'clock_out': None,
-            'activity': '',
-        })
-
-        for entry in entries:
-            start = entry.get('startTime')
-            end = entry.get('endTime')
-            activity = entry.get('activityName', '') or ''
-
-            if not start:
+    # ── Fallback for today using /people ──────────────────────────────────────
+    if not result and date_from == today:
+        for p in people:
+            if not p.get('isActive') or p.get('latestTimeEntryType') != 'In':
                 continue
-
             try:
-                from datetime import datetime as dt, timezone
-                s = dt.fromisoformat(start.replace('Z', '+00:00'))
-                date_key = s.astimezone(
-                    datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-                ).strftime('%Y-%m-%d')
-
-                if not daily[date_key]['clock_in']:
-                    daily[date_key]['clock_in'] = start
-
-                if end:
-                    e = dt.fromisoformat(end.replace('Z', '+00:00'))
-                    secs = int((e - s).total_seconds())
-                    daily[date_key]['seconds'] += secs
-                    daily[date_key]['clock_out'] = end
-                else:
-                    # Ongoing
-                    now = dt.now(timezone.utc)
-                    secs = int((now - s).total_seconds())
-                    daily[date_key]['seconds'] += secs
-
-                if activity:
-                    daily[date_key]['activity'] = activity
+                s = dt.fromisoformat(p['latestTimeEntryTime'].replace('Z', '+00:00'))
+                seconds = max(0, int((now - s).total_seconds()))
+                if seconds > 0:
+                    result.append({
+                        'personName':   p.get('fullName', ''),
+                        'position':     p.get('positionName', ''),
+                        'date':         today,
+                        'totalSeconds': seconds,
+                        'startTime':    p['latestTimeEntryTime'],
+                        'endTime':      None,
+                        'activityName': p.get('activityName', ''),
+                        'isOngoing':    True,
+                    })
             except Exception:
                 pass
 
-        for date_key, day_data in sorted(daily.items()):
-            if day_data['seconds'] > 0:
-                result.append({
-                    'personName': name,
-                    'position': position,
-                    'date': date_key,
-                    'totalSeconds': day_data['seconds'],
-                    'startTime': day_data['clock_in'],
-                    'endTime': day_data['clock_out'],
-                    'activityName': day_data['activity'],
-                    'isOngoing': day_data['clock_out'] is None,
-                })
-
     return result
+
 def get_employees():
     """All employees/people from Jibble"""
     result = jibble_get_tracking('/people')
