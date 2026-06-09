@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { FiClock, FiCalendar, FiRefreshCw, FiDownload, FiUser } from 'react-icons/fi';
+import { FiRefreshCw, FiUser } from 'react-icons/fi';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -18,7 +18,7 @@ async function fetchTimesheets(dateFrom, dateTo) {
 }
 
 async function fetchAttendance(dateFrom, dateTo) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateString(new Date());
   const isToday = dateFrom === today && dateTo === today;
   const url = isToday
     ? `${API}/api/jibble/live/`
@@ -42,32 +42,44 @@ function formatTime(isoString) {
   });
 }
 
-function formatDate(isoString) {
-  if (!isoString) return '—';
-  return new Date(isoString).toLocaleDateString('en-IN', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
+function formatDate(dateStr) {
+  if (!dateStr) return '—';
+  // dateStr is YYYY-MM-DD from backend
+  const [y, m, d] = dateStr.split('-');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${d} ${months[parseInt(m)-1]} ${y}`;
+}
+
+// Get local date string YYYY-MM-DD without UTC conversion
+function localDateString(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function getDateRange(period) {
   const today = new Date();
-  const fmt = (d) => d.toISOString().split('T')[0];
+  const todayStr = localDateString(today);
 
   if (period === 'today') {
-    return { from: fmt(today), to: fmt(today) };
+    return { from: todayStr, to: todayStr };
   }
+
   if (period === 'week') {
     const start = new Date(today);
-    const day = today.getDay();
+    const day = today.getDay(); // 0=Sun, 1=Mon ... 6=Sat
     const daysFromMonday = day === 0 ? 6 : day - 1;
     start.setDate(today.getDate() - daysFromMonday);
-    return { from: fmt(start), to: fmt(today) };
+    return { from: localDateString(start), to: todayStr };
   }
+
   if (period === 'month') {
     const start = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: fmt(start), to: fmt(today) };
+    return { from: localDateString(start), to: todayStr };
   }
-  return { from: fmt(today), to: fmt(today) };
+
+  return { from: todayStr, to: todayStr };
 }
 
 export default function Timesheet() {
@@ -120,20 +132,17 @@ export default function Timesheet() {
     }
   };
 
-  // Filter attendance by search
   const filteredAttendance = attendance.filter(a =>
     !search || (a.name || '').toLowerCase().includes(search.toLowerCase())
   );
 
-  // Filter timesheets by search
   const filteredTimesheets = timesheets.filter(t =>
     !search || (t.personName || t.name || '').toLowerCase().includes(search.toLowerCase())
   );
 
-  // Summary stats
   const totalIn = attendance.filter(a => a.isIn).length;
   const totalOut = attendance.filter(a => !a.isIn).length;
-  const totalHours = timesheets.reduce((sum, t) => sum + (t.totalSeconds || t.total || 0), 0);
+  const totalHours = timesheets.reduce((sum, t) => sum + (t.totalSeconds || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -297,11 +306,11 @@ export default function Timesheet() {
               ) : filteredTimesheets.map((t, i) => (
                 <tr key={i}>
                   <td className="font-medium text-white">{t.personName || t.name || '—'}</td>
-                  <td className="text-slate-300">{formatDate(t.date || t.startTime)}</td>
-                  <td className="text-indigo-300 font-semibold">{formatHours(t.totalSeconds || t.total || 0)}</td>
-                  <td className="text-slate-300">{formatTime(t.startTime || t.clockIn)}</td>
-                  <td className="text-slate-300">{formatTime(t.endTime || t.clockOut)}</td>
-                  <td className="text-slate-400">{t.activityName || t.activity || '—'}</td>
+                  <td className="text-slate-300">{formatDate(t.date)}</td>
+                  <td className="text-indigo-300 font-semibold">{formatHours(t.totalSeconds || 0)}</td>
+                  <td className="text-slate-300">{formatTime(t.startTime)}</td>
+                  <td className="text-slate-300">{t.endTime ? formatTime(t.endTime) : <span className="text-emerald-400 text-xs">Ongoing</span>}</td>
+                  <td className="text-slate-400">{t.activityName || '—'}</td>
                 </tr>
               ))}
             </tbody>
