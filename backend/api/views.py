@@ -2742,21 +2742,26 @@ def channel_member_detail(request, channel_id, user_id):
         return JsonResponse({'success': True, 'members': members})
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 
+
 @csrf_exempt
 def jibble_live_attendance(request):
     user = _get_session_user(request)
     if not user:
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
     data = get_who_is_in()
-    
+
+    # Total active employees regardless of clock status
+    all_employees = get_employees()
+    total_employees = len([e for e in all_employees if e.get('isActive')])
+
     # If admin/manager/HOD — return all
     # If employee — return only their own
     if not (_is_manager(user) or _is_hod(user)):
         full_name = f"{user.first_name} {user.last_name}".strip()
-        data = [a for a in data if 
+        data = [a for a in data if
                 full_name.lower() in (a.get('name') or '').lower()]
-    
-    return JsonResponse({'attendance': data})
+
+    return JsonResponse({'attendance': data, 'totalEmployees': total_employees})
 
 @csrf_exempt
 def jibble_attendance(request):
