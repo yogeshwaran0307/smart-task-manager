@@ -44,7 +44,7 @@ def get_jibble_token():
 
 
 # ─────────────────────────────────────────────────────────────
-# SAFE GET WRAPPER — never crashes your app
+# SAFE GET WRAPPERS
 # ─────────────────────────────────────────────────────────────
 def jibble_get(endpoint, params=None):
     try:
@@ -53,10 +53,7 @@ def jibble_get(endpoint, params=None):
             return None
         res = requests.get(
             f'{JIBBLE_BASE_URL}{endpoint}',
-            headers={
-                'Authorization': f'Bearer {token}',
-                'Content-Type':  'application/json',
-            },
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
             params=params,
             timeout=10,
         )
@@ -68,17 +65,13 @@ def jibble_get(endpoint, params=None):
 
 
 def jibble_get_tracking(endpoint, params=None):
-    """Use time-tracking base URL for People/Timesheets endpoints"""
     try:
         token = get_jibble_token()
         if not token:
             return None
         res = requests.get(
             f'{JIBBLE_TRACKING_URL}{endpoint}',
-            headers={
-                'Authorization': f'Bearer {token}',
-                'Content-Type':  'application/json',
-            },
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
             params=params,
             timeout=10,
         )
@@ -93,8 +86,18 @@ def jibble_get_tracking(endpoint, params=None):
 # JIBBLE DATA FUNCTIONS
 # ─────────────────────────────────────────────────────────────
 
+def get_employees():
+    """All active employees from Jibble"""
+    result = jibble_get_tracking('/people')
+    if result is None:
+        return []
+    if isinstance(result, list):
+        return result
+    return result.get('value', result.get('data', []))
+
+
 def get_who_is_in():
-    """Who is currently clocked in — derived from people's latestTimeEntryType"""
+    """All active employees with current clock-in/out status"""
     people = get_employees()
     result = []
     for p in people:
@@ -102,14 +105,14 @@ def get_who_is_in():
             continue
         entry_type = p.get('latestTimeEntryType', '')
         result.append({
-            'name': p.get('fullName', ''),
+            'name':     p.get('fullName', ''),
             'position': p.get('positionName', ''),
-            'isIn': entry_type == 'In',
-            'clockIn': p.get('latestTimeEntryTime') if entry_type == 'In' else None,
+            'isIn':     entry_type == 'In',
+            'clockIn':  p.get('latestTimeEntryTime') if entry_type == 'In' else None,
             'clockOut': p.get('latestTimeEntryTime') if entry_type == 'Out' else None,
             'activity': p.get('activityName', ''),
-            'project': p.get('projectName', ''),
-            'id': p.get('id', ''),
+            'project':  p.get('projectName', ''),
+            'id':       p.get('id', ''),
         })
     return result
 
@@ -128,8 +131,10 @@ def get_attendance(date_from=None, date_to=None):
     if isinstance(result, list):
         return result
     return result.get('value', result.get('data', []))
+
+
 def get_timesheets(date_from=None, date_to=None):
-    """Work hours timesheets - one row per person per day"""
+    """Work hours timesheets — one row per person per day with correct hours"""
     from datetime import datetime as dt, timezone
 
     today = str(datetime.date.today())
@@ -142,6 +147,7 @@ def get_timesheets(date_from=None, date_to=None):
     raw_entries = []
     if token:
         try:
+            # Paginate through all time entries
             url = f'{JIBBLE_TRACKING_URL}/timeEntries'
             params = {'from': date_from, 'to': date_to, '$top': 500}
             headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
@@ -170,8 +176,8 @@ def get_timesheets(date_from=None, date_to=None):
     people_map = {p['id']: p for p in people if p.get('isActive')}
     now = dt.now(timezone.utc)
 
-    # ── Deduplicate: remove Archived copies of edited entries only
-    # Use entry ID — keep Active version over Archived for same entry
+    # ── Deduplicate using minute-level key — allows multiple sessions per day
+    # Only removes near-duplicate entries (same person, same type, same minute)
     dedup = {}
     for entry in raw_entries:
         person_id  = entry.get('personId') or entry.get('memberId') or entry.get('userId')
@@ -179,23 +185,21 @@ def get_timesheets(date_from=None, date_to=None):
         time_str   = entry.get('time') or entry.get('localTime')
         belongs_to = entry.get('belongsToDate') or (time_str[:10] if time_str else None)
         status     = entry.get('status', 'Active')
-        entry_id   = entry.get('id', '')
 
         if not person_id or not time_str or not belongs_to or entry_type not in ('In', 'Out'):
             continue
         if not (date_from <= belongs_to <= date_to):
             continue
 
-        # Use minute-level key to catch near-duplicate entries (same person, type, minute)
+        # Use minute-level key so multiple sessions per day are preserved
         time_minute = time_str[:16] if time_str else ''
         key = (person_id, entry_type, time_minute)
         if key not in dedup:
             dedup[key] = entry
         else:
+            # Prefer Active over Archived
             existing = dedup[key]
-            existing_active = existing.get('status', 'Active') == 'Active'
-            this_active     = status == 'Active'
-            if this_active and not existing_active:
+            if existing.get('status', 'Active') != 'Active' and status == 'Active':
                 dedup[key] = entry
 
     clean_entries = list(dedup.values())
@@ -217,7 +221,6 @@ def get_timesheets(date_from=None, date_to=None):
 
         if entry_type == 'In':
             if person_id in open_ins:
-                # Close previous open session before starting new one
                 prev = open_ins[person_id]
                 pk = (person_id, prev['date'])
                 sessions.setdefault(pk, []).append({'in': prev['in'], 'out': t})
@@ -229,7 +232,7 @@ def get_timesheets(date_from=None, date_to=None):
                 pk = (person_id, in_data['date'])
                 sessions.setdefault(pk, []).append({'in': in_data['in'], 'out': t})
 
-    # Still clocked in
+    # Still clocked in — add as open session
     for person_id, in_data in open_ins.items():
         pk = (person_id, in_data['date'])
         sessions.setdefault(pk, []).append({'in': in_data['in'], 'out': None})
@@ -246,9 +249,17 @@ def get_timesheets(date_from=None, date_to=None):
         for pair in pairs:
             in_t, out_t = pair['in'], pair['out']
             if out_t:
-                total_seconds += max(0, int((out_t - in_t).total_seconds()))
-                if last_out is None or out_t > last_out:
-                    last_out = out_t
+                # Cap at end of day to avoid cross-day overflow
+                try:
+                    day_end = dt.fromisoformat(f"{date}T23:59:59+05:30").astimezone(timezone.utc)
+                    capped_out = min(out_t, day_end)
+                    real_out = out_t if out_t < day_end else None
+                except Exception:
+                    capped_out = out_t
+                    real_out = out_t
+                total_seconds += max(0, int((capped_out - in_t).total_seconds()))
+                if real_out and (last_out is None or real_out > last_out):
+                    last_out = real_out
             else:
                 total_seconds += max(0, int((now - in_t).total_seconds()))
                 is_ongoing = True
@@ -267,7 +278,7 @@ def get_timesheets(date_from=None, date_to=None):
                 'isOngoing':    is_ongoing,
             })
 
-    # ── Fallback for today using /people ──────────────────────────────────────
+    # ── Fallback for today using /people if no entries found ──────────────────
     if not result and date_from == today:
         for p in people:
             if not p.get('isActive') or p.get('latestTimeEntryType') != 'In':
@@ -291,18 +302,8 @@ def get_timesheets(date_from=None, date_to=None):
 
     return result
 
-def get_employees():
-    """All employees/people from Jibble"""
-    result = jibble_get_tracking('/people')
-    if result is None:
-        return []
-    if isinstance(result, list):
-        return result
-    return result.get('value', result.get('data', []))
-
 
 def get_holidays():
-    """Company holidays from Jibble"""
     result = jibble_get('/holidays')
     if result is None:
         return []
@@ -312,7 +313,6 @@ def get_holidays():
 
 
 def get_schedules():
-    """Work schedules/shifts from Jibble"""
     result = jibble_get('/schedules')
     if result is None:
         return []
@@ -322,15 +322,11 @@ def get_schedules():
 
 
 def get_person_attendance(person_id, date_from=None, date_to=None):
-    """Attendance for a specific person"""
     if not date_from:
         date_from = str(datetime.date.today())
     if not date_to:
         date_to = str(datetime.date.today())
-    result = jibble_get(f'/attendance/{person_id}', params={
-        'from': date_from,
-        'to':   date_to,
-    })
+    result = jibble_get(f'/attendance/{person_id}', params={'from': date_from, 'to': date_to})
     if result is None:
         return []
     if isinstance(result, list):
@@ -339,20 +335,16 @@ def get_person_attendance(person_id, date_from=None, date_to=None):
 
 
 def test_connection():
-    """Test if Jibble API credentials are working"""
     token = get_jibble_token()
     if not token:
-        return {
-            'connected': False,
-            'error': 'Could not get token — check JIBBLE_KEY_ID and JIBBLE_KEY_SECRET'
-        }
+        return {'connected': False, 'error': 'Could not get token — check JIBBLE_KEY_ID and JIBBLE_KEY_SECRET'}
     employees = get_employees()
     attendance = get_who_is_in()
+    clocked_in = [a for a in attendance if a.get('isIn')]
     return {
         'connected': True,
         'employee_count': len(employees),
-        'attendance_count': len(attendance),
-        'employees_sample': employees[:2],
-        'attendance_sample': attendance[:2],
-        'message': f'✅ Connected to Jibble — {len(employees)} employees, {len(attendance)} clocked in'
+        'clocked_in_count': len(clocked_in),
+        'clocked_out_count': len(attendance) - len(clocked_in),
+        'message': f'✅ Connected — {len(employees)} employees, {len(clocked_in)} clocked in',
     }
