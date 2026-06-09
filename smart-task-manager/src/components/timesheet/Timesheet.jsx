@@ -58,7 +58,10 @@ function getDateRange(period) {
   }
   if (period === 'week') {
     const start = new Date(today);
-    start.setDate(today.getDate() - today.getDay() + 1);
+    const day = today.getDay(); // 0=Sun, 1=Mon ... 6=Sat
+    // Go back to Monday (if today is Sunday go back 6 days)
+    const daysFromMonday = day === 0 ? 6 : day - 1;
+    start.setDate(today.getDate() - daysFromMonday);
     return { from: fmt(start), to: fmt(today) };
   }
   if (period === 'month') {
