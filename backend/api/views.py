@@ -1780,8 +1780,8 @@ def users_workload(request):
             haystack = f"{u.username} {u.first_name} {u.last_name} {u.email}".lower()
             if search_filter not in haystack:
                 continue
-        user_tasks = [t for t in all_tasks if t.assignees.filter(id=u.id).exists()]
-        user_projects = [p for p in all_projects if p.project_members.filter(user=u).exists() or p.created_by_id == u.id]
+        user_tasks = [t for t in all_tasks if any(a.id == u.id for a in t.assignees.all())]
+        user_projects = [p for p in all_projects if any(pm.user_id == u.id for pm in p.project_members.all()) or p.created_by_id == u.id]
         result.append({
             **_serialize_user(u),
             'task_stats': {
@@ -2750,21 +2750,11 @@ def jibble_live_attendance(request):
     data = get_who_is_in()
     
     # If admin/manager/HOD — return all
-    # If employee — return only their own record
+    # If employee — return only their own
     if not (_is_manager(user) or _is_hod(user)):
-        first = (user.first_name or '').strip().lower()
-        last  = (user.last_name or '').strip().lower()
-        username = (user.username or '').strip().lower()
-        def name_matches(name):
-            n = (name or '').strip().lower()
-            if first and last and first in n and last in n:
-                return True
-            if first and last == '' and first in n:
-                return True
-            if username and username in n:
-                return True
-            return False
-        data = [a for a in data if name_matches(a.get('name'))]
+        full_name = f"{user.first_name} {user.last_name}".strip()
+        data = [a for a in data if 
+                full_name.lower() in (a.get('name') or '').lower()]
     
     return JsonResponse({'attendance': data})
 
@@ -2799,22 +2789,11 @@ def jibble_timesheets(request):
 
     # Non-managers/admins can only see their own timesheet
     if not (_is_manager(user) or _is_hod(user)):
-        first = (user.first_name or '').strip().lower()
-        last  = (user.last_name or '').strip().lower()
-        username = (user.username or '').strip().lower()
-        def name_matches(row_name):
-            n = (row_name or '').strip().lower()
-            if not n:
-                return False
-            # Match if first+last both appear, or username appears
-            if first and last and first in n and last in n:
-                return True
-            if first and last == '' and first in n:
-                return True
-            if username and username in n:
-                return True
-            return False
-        data = [row for row in data if name_matches(row.get('personName'))]
+        full_name = f"{user.first_name} {user.last_name}".strip().lower()
+        data = [
+            row for row in data
+            if full_name in (row.get('personName') or '').strip().lower()
+        ]
 
     return JsonResponse({'timesheets': data})
 
