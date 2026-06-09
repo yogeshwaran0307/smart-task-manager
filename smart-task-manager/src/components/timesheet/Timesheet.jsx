@@ -58,7 +58,7 @@ function getDateRange(period) {
   }
   if (period === 'week') {
     const start = new Date(today);
-    const day = today.getDay(); // 0=Sun, 1=Mon...6=Sat
+    const day = today.getDay();
     const daysFromMonday = day === 0 ? 6 : day - 1;
     start.setDate(today.getDate() - daysFromMonday);
     return { from: fmt(start), to: fmt(today) };
