@@ -75,64 +75,88 @@ def _is_superadmin(user):
     return _user_role(user) == 'superadmin'
 
 def _tenant_projects(request):
-    """Return Project queryset scoped to request.tenant (superadmin sees all)."""
-    user = getattr(request, 'user', None) if hasattr(request, 'user') else None
-    # We use request.tenant set by TenantMiddleware
-    tenant = getattr(request, 'tenant', None)
-    from django.db.models import QuerySet
+    """Return Project queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
     qs = Project.objects.all()
-    if tenant is not None:
-        qs = qs.filter(tenant=tenant)
-    return qs
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
 
 def _tenant_tasks(request):
-    """Return Task queryset scoped to request.tenant (superadmin sees all)."""
-    tenant = getattr(request, 'tenant', None)
+    """Return Task queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
     qs = Task.objects.all()
-    if tenant is not None:
-        qs = qs.filter(tenant=tenant)
-    return qs
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
 
 def _tenant_users(request):
-    """Return User queryset scoped to request.tenant (superadmin sees all)."""
-    tenant = getattr(request, 'tenant', None)
+    """Return User queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
     qs = User.objects.all()
-    if tenant is not None:
-        qs = qs.filter(tenant=tenant)
-    return qs
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
 
 def _tenant_departments(request):
-    """Return Department queryset scoped to request.tenant."""
-    tenant = getattr(request, 'tenant', None)
+    """Return Department queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
     qs = Department.objects.all()
-    if tenant is not None:
-        qs = qs.filter(tenant=tenant)
-    return qs
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
 
 def _tenant_roles(request):
-    """Return Role queryset scoped to request.tenant."""
-    tenant = getattr(request, 'tenant', None)
+    """Return Role queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
     qs = Role.objects.all()
-    if tenant is not None:
-        qs = qs.filter(tenant=tenant)
-    return qs
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
 
 def _tenant_extension_requests(request):
-    """Return ExtensionRequest queryset scoped to request.tenant."""
-    tenant = getattr(request, 'tenant', None)
+    """Return ExtensionRequest queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
     qs = ExtensionRequest.objects.all()
-    if tenant is not None:
-        qs = qs.filter(tenant=tenant)
-    return qs
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
 
 def _tenant_channels(request):
-    """Return Channel queryset scoped to request.tenant."""
-    tenant = getattr(request, 'tenant', None)
+    """Return Channel queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
     qs = Channel.objects.all()
-    if tenant is not None:
-        qs = qs.filter(tenant=tenant)
-    return qs
-
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
 def _get_role_permissions(user):
     """Return permissions from the user's assigned custom Role (if any)."""
     if not user or not user.role:
