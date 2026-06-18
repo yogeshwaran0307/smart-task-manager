@@ -65,12 +65,98 @@ RESTRICTED_ROLES = ('junior', 'employee')
 def _user_role(user):
     return (user.role or '').lower() if user else ''
 
-def _is_admin(user): return _user_role(user) == 'admin'
-def _is_manager(user): return _user_role(user) in ('admin', 'manager')
+def _is_admin(user): return _user_role(user) in ('admin', 'superadmin')
+def _is_manager(user): return _user_role(user) in ('admin', 'manager', 'superadmin')
 def _is_hod(user): return _user_role(user) == 'head_of_department'
 
-SYSTEM_ROLE_NAMES = {'admin', 'manager', 'head_of_department', 'senior', 'junior', 'employee'}
+SYSTEM_ROLE_NAMES = {'superadmin', 'admin', 'manager', 'head_of_department', 'senior', 'junior', 'employee'}
 
+def _is_superadmin(user):
+    return _user_role(user) == 'superadmin'
+
+def _tenant_projects(request):
+    """Return Project queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
+    qs = Project.objects.all()
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
+
+def _tenant_tasks(request):
+    """Return Task queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
+    qs = Task.objects.all()
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
+
+def _tenant_users(request):
+    """Return User queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
+    qs = User.objects.all()
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
+
+def _tenant_departments(request):
+    """Return Department queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
+    qs = Department.objects.all()
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
+
+def _tenant_roles(request):
+    """Return Role queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
+    qs = Role.objects.all()
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
+
+def _tenant_extension_requests(request):
+    """Return ExtensionRequest queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
+    qs = ExtensionRequest.objects.all()
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
+
+def _tenant_channels(request):
+    """Return Channel queryset scoped to the requesting user's tenant (superadmin sees all)."""
+    user = _get_session_user(request)
+    qs = Channel.objects.all()
+    if user is None:
+        return qs.none()
+    if _is_superadmin(user):
+        return qs
+    if not user.tenant_id:
+        return qs.none()
+    return qs.filter(tenant_id=user.tenant_id)
 def _get_role_permissions(user):
     """Return permissions from the user's assigned custom Role (if any)."""
     if not user or not user.role:
@@ -500,12 +586,12 @@ def approvals_list(request):
     seen_task_ids = set()
     seen_project_ids = set()
     from django.db.models import Q
-    tasks_qs = Task.objects.filter(
+    tasks_qs = _tenant_tasks(request).filter(
         deleted=False
     ).filter(
         Q(approval_status='pending') | Q(edit_approval_status='pending')
     ).prefetch_related('assignees', 'departments')
-    projects_qs = Project.objects.filter(
+    projects_qs = _tenant_projects(request).filter(
         deleted=False
     ).filter(
         Q(approval_status='pending') | Q(edit_approval_status='pending')
@@ -575,7 +661,7 @@ def projects_list(request):
         search = (request.GET.get('search') or '').lower().strip()
         status_f = (request.GET.get('status') or '').lower().strip()
         priority_f = (request.GET.get('priority') or '').lower().strip()
-        qs = Project.objects.filter(deleted=False).prefetch_related('departments', 'project_members__user')
+        qs = _tenant_projects(request).filter(deleted=False).prefetch_related('departments', 'project_members__user')
         result = []
         for p in qs:
             if not _is_item_visible(user, p):
@@ -617,6 +703,7 @@ def projects_list(request):
             eta=eta,
             created_by=user,
             approval_status='approved' if auto else 'pending',
+            tenant=user.tenant,
         )
         if dept_ids:
             p.departments.set(dept_ids)
@@ -635,7 +722,7 @@ def projects_list(request):
                 ProjectMember.objects.get_or_create(project=p, user=u_member)
         _add_activity(f"Project '{p.name}' created by {user.display_name()}", user)
         if not auto:
-            for u in User.objects.filter(role__in=['admin', 'manager'], is_active=True):
+            for u in _tenant_users(request).filter(role__in=['admin', 'manager'], is_active=True):
                 _add_notification(u.id, f"🆕 Project '{p.name}' requires your approval (by {user.display_name()})",
                                   ntype='approval', related_id=p.id, related_type='project')
         return JsonResponse(_serialize_project(p), status=201)
@@ -643,7 +730,7 @@ def projects_list(request):
 
 @csrf_exempt
 def project_detail(request, id):
-    p = Project.objects.filter(id=id).prefetch_related('departments', 'project_members__user').first()
+    p = _tenant_projects(request).filter(id=id).prefetch_related('departments', 'project_members__user').first()
     if not p:
         return JsonResponse({'error': 'Not found'}, status=404)
     if request.method == 'GET':
@@ -707,7 +794,7 @@ def project_detail(request, id):
             p.edit_requested_by = user
             p.save()
             _add_activity(f"Project '{p.name}' edit submitted for approval by {user.display_name()}", user)
-            for u in User.objects.filter(role__in=['admin', 'manager'], is_active=True):
+            for u in _tenant_users(request).filter(role__in=['admin', 'manager'], is_active=True):
                 _add_notification(u.id, f"✏️ Project '{p.name}' edit requires approval",
                                   ntype='approval', related_id=p.id, related_type='project')
         return JsonResponse(_serialize_project(p))
@@ -729,21 +816,21 @@ def project_detail(request, id):
 
 @csrf_exempt
 def project_submit_approval(request, id):
-    p = Project.objects.filter(id=id).first()
+    p = _tenant_projects(request).filter(id=id).first()
     if not p:
         return JsonResponse({'error': 'Not found'}, status=404)
     p.approval_status = 'pending'
     p.save()
     user = _get_session_user(request)
     name = user.display_name() if user else 'Someone'
-    for u in User.objects.filter(role__in=['admin', 'manager'], is_active=True):
+    for u in _tenant_users(request).filter(role__in=['admin', 'manager'], is_active=True):
         _add_notification(u.id, f"🆕 Project '{p.name}' submitted for approval by {name}",
                           ntype='approval', related_id=p.id, related_type='project')
     return JsonResponse({'success': True})
 
 @csrf_exempt
 def project_approve(request, id):
-    p = Project.objects.filter(id=id).prefetch_related('departments').first()
+    p = _tenant_projects(request).filter(id=id).prefetch_related('departments').first()
     if not p:
         return JsonResponse({'error': 'Not found'}, status=404)
     user = _get_session_user(request)
@@ -817,7 +904,7 @@ def project_approve(request, id):
 
 @csrf_exempt
 def project_reject(request, id):
-    p = Project.objects.filter(id=id).prefetch_related('departments').first()
+    p = _tenant_projects(request).filter(id=id).prefetch_related('departments').first()
     if not p:
         return JsonResponse({'error': 'Not found'}, status=404)
     user = _get_session_user(request)
@@ -867,11 +954,11 @@ def project_reject(request, id):
 
 @csrf_exempt
 def project_kanban(request, id):
-    p = Project.objects.filter(id=id).first()
+    p = _tenant_projects(request).filter(id=id).first()
     if not p:
         return JsonResponse({'error': 'Not found'}, status=404)
     user = _get_session_user(request)
-    tasks_qs = Task.objects.filter(project=p, deleted=False).prefetch_related('assignees', 'departments')
+    tasks_qs = _tenant_tasks(request).filter(project=p, deleted=False).prefetch_related('assignees', 'departments')
     if user and _user_role(user) not in ('admin', 'manager'):
         tasks_qs = [t for t in tasks_qs if _is_item_visible(user, t)]
     tasks_data = [_serialize_task(t) for t in tasks_qs]
@@ -883,8 +970,8 @@ def project_recycle_bin(request):
     can_access = user and (_is_manager(user) or _has_extra_permission(user, 'manage_recycle_bin'))
     if not can_access:
         return JsonResponse({'projects': [], 'tasks': []})
-    deleted_projects = [_serialize_project(p) for p in Project.objects.filter(deleted=True).prefetch_related('departments', 'project_members__user')]
-    deleted_tasks = [_serialize_task(t) for t in Task.objects.filter(deleted=True).prefetch_related('assignees', 'departments')]
+    deleted_projects = [_serialize_project(p) for p in _tenant_projects(request).filter(deleted=True).prefetch_related('departments', 'project_members__user')]
+    deleted_tasks = [_serialize_task(t) for t in _tenant_tasks(request).filter(deleted=True).prefetch_related('assignees', 'departments')]
     return JsonResponse({'projects': deleted_projects, 'tasks': deleted_tasks})
 
 @csrf_exempt
@@ -893,7 +980,7 @@ def project_restore(request, id):
     can_access = user and (_is_manager(user) or _has_extra_permission(user, 'manage_recycle_bin'))
     if not can_access:
         return JsonResponse({'error': 'Permission denied'}, status=403)
-    p = Project.objects.filter(id=id).first()
+    p = _tenant_projects(request).filter(id=id).first()
     if p:
         p.deleted = False
         p.deleted_at = None
@@ -906,7 +993,7 @@ def project_purge(request, id):
     user = _get_session_user(request)
     if not user or not (_is_admin(user) or _has_extra_permission(user, 'purge_items')):
         return JsonResponse({'error': 'Permission denied'}, status=403)
-    p = Project.objects.filter(id=id).first()
+    p = _tenant_projects(request).filter(id=id).first()
     if p:
         _add_activity(f"Project '{p.name}' permanently deleted by {user.display_name()}", user)
         p.delete()
@@ -919,28 +1006,28 @@ def project_analytics(request):
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
     role = _user_role(user)
     if role in ('admin', 'manager') or _has_extra_permission(user, 'view_analytics'):
-        visible_projects = list(Project.objects.filter(deleted=False, approval_status='approved'))
-        visible_tasks = list(Task.objects.filter(deleted=False, approval_status='approved'))
+        visible_projects = list(_tenant_projects(request).filter(deleted=False, approval_status='approved'))
+        visible_tasks = list(_tenant_tasks(request).filter(deleted=False, approval_status='approved'))
         # Weekly counts include ALL non-deleted tasks (any approval status)
-        weekly_task_ids = set(Task.objects.filter(deleted=False).values_list('id', flat=True))
+        weekly_task_ids = set(_tenant_tasks(request).filter(deleted=False).values_list('id', flat=True))
     elif role == 'head_of_department':
         hod_depts = _hod_effective_depts(user)
-        visible_projects = [p for p in Project.objects.filter(deleted=False, approval_status='approved').prefetch_related('departments')
+        visible_projects = [p for p in _tenant_projects(request).filter(deleted=False, approval_status='approved').prefetch_related('departments')
                             if any(d in hod_depts for d in p.departments.values_list('id', flat=True))]
-        visible_tasks = [t for t in Task.objects.filter(deleted=False, approval_status='approved').prefetch_related('departments')
+        visible_tasks = [t for t in _tenant_tasks(request).filter(deleted=False, approval_status='approved').prefetch_related('departments')
                          if any(d in hod_depts for d in t.departments.values_list('id', flat=True))]
         # Weekly counts include all department tasks regardless of approval status
         weekly_task_ids = set(
-            Task.objects.filter(deleted=False, departments__in=hod_depts).values_list('id', flat=True)
+            _tenant_tasks(request).filter(deleted=False, departments__in=hod_depts).values_list('id', flat=True)
         )
     else:
-        visible_tasks = [t for t in Task.objects.filter(deleted=False, approval_status='approved').prefetch_related('assignees', 'departments')
+        visible_tasks = [t for t in _tenant_tasks(request).filter(deleted=False, approval_status='approved').prefetch_related('assignees', 'departments')
                          if _is_item_visible(user, t)]
-        visible_projects = [p for p in Project.objects.filter(deleted=False, approval_status='approved').prefetch_related('departments', 'project_members')
+        visible_projects = [p for p in _tenant_projects(request).filter(deleted=False, approval_status='approved').prefetch_related('departments', 'project_members')
                             if _is_item_visible(user, p)]
         # Weekly counts include tasks assigned to or created by this user (any approval status)
-        assigned_ids = set(Task.objects.filter(deleted=False, assignees=user).values_list('id', flat=True))
-        created_ids = set(Task.objects.filter(deleted=False, created_by=user).values_list('id', flat=True))
+        assigned_ids = set(_tenant_tasks(request).filter(deleted=False, assignees=user).values_list('id', flat=True))
+        created_ids = set(_tenant_tasks(request).filter(deleted=False, created_by=user).values_list('id', flat=True))
         weekly_task_ids = assigned_ids | created_ids
     completed_tasks = [t for t in visible_tasks if t.status in ('done', 'completed')]
     in_progress = [t for t in visible_tasks if t.status == 'in_progress']
@@ -989,7 +1076,7 @@ def project_analytics(request):
         return timezone.localtime(ts).date() if timezone.is_aware(ts) else ts.date()
 
     # Tasks created in the last 7 days
-    created_qs = Task.objects.filter(
+    created_qs = _tenant_tasks(request).filter(
         id__in=weekly_task_ids,
         created_at__gte=window_start_dt,
         created_at__lte=window_end_dt,
@@ -1000,7 +1087,7 @@ def project_analytics(request):
             day_entries[date_index[d]]['created'] += 1
 
     # Tasks completed in the last 7 days (accurate completed_at)
-    completed_qs = Task.objects.filter(
+    completed_qs = _tenant_tasks(request).filter(
         id__in=weekly_task_ids,
         status__in=('done', 'completed'),
         completed_at__gte=window_start_dt,
@@ -1014,7 +1101,7 @@ def project_analytics(request):
     # Fallback: tasks marked done/completed but missing completed_at
     # (tasks completed before the completed_at migration was applied).
     # Use created_at as a best-effort proxy for when they were completed.
-    fallback_qs = Task.objects.filter(
+    fallback_qs = _tenant_tasks(request).filter(
         id__in=weekly_task_ids,
         status__in=('done', 'completed'),
         completed_at__isnull=True,
@@ -1068,7 +1155,7 @@ def project_analytics(request):
 @csrf_exempt
 def project_members(request, id):
     user = _get_session_user(request)
-    p = Project.objects.filter(id=id).first()
+    p = _tenant_projects(request).filter(id=id).first()
     if not p:
         return JsonResponse({'error': 'Not found'}, status=404)
     if request.method == 'POST':
@@ -1094,7 +1181,7 @@ def project_members(request, id):
 @csrf_exempt
 def project_member_detail(request, id, user_id):
     requesting_user = _get_session_user(request)
-    p = Project.objects.filter(id=id).first()
+    p = _tenant_projects(request).filter(id=id).first()
     if not p:
         return JsonResponse({'error': 'Not found'}, status=404)
     if not requesting_user:
@@ -1157,7 +1244,7 @@ def tasks_list(request):
         priority_f = (request.GET.get('priority') or '').lower().strip()
         project_f = request.GET.get('project') or request.GET.get('project_id')
 
-        qs = Task.objects.filter(deleted=False).select_related('project').prefetch_related('assignees', 'departments')
+        qs = _tenant_tasks(request).filter(deleted=False).select_related('project').prefetch_related('assignees', 'departments')
 
         if project_f:
             try:
@@ -1191,7 +1278,7 @@ def tasks_list(request):
         # Block task creation if the project is overdue/locked
         project_id_for_task = body.get('project') or None
         if project_id_for_task:
-            proj = Project.objects.filter(id=project_id_for_task, deleted=False).first()
+            proj = _tenant_projects(request).filter(id=project_id_for_task, deleted=False).first()
             if proj and _is_overdue(proj):
                 return JsonResponse({'error': 'This project has passed its due date and is locked. No new tasks can be created.'}, status=403)
         auto = _auto_approve(user)
@@ -1211,6 +1298,7 @@ def tasks_list(request):
             project_id=body.get('project') or None,
             created_by=user,
             approval_status='approved' if auto else 'pending',
+            tenant=user.tenant,
         )
         if dept_ids:
             t.departments.set(dept_ids)
@@ -1229,7 +1317,7 @@ def tasks_list(request):
             t.assignees.set(assignee_ids)
         _add_activity(f"Task '{t.title}' created by {user.display_name()}", user)
         if not auto:
-            for u in User.objects.filter(role__in=['admin', 'manager'], is_active=True):
+            for u in _tenant_users(request).filter(role__in=['admin', 'manager'], is_active=True):
                 _add_notification(u.id, f"🆕 Task '{t.title}' requires your approval (by {user.display_name()})",
                                   ntype='approval', related_id=t.id, related_type='task')
         else:
@@ -1247,7 +1335,7 @@ def my_tasks(request):
     search = (request.GET.get('search') or '').lower().strip()
     status_f = (request.GET.get('status') or '').lower().strip()
     priority_f = (request.GET.get('priority') or '').lower().strip()
-    qs = Task.objects.filter(deleted=False, assignees=user).exclude(approval_status='rejected').prefetch_related('assignees', 'departments')
+    qs = _tenant_tasks(request).filter(deleted=False, assignees=user).exclude(approval_status='rejected').prefetch_related('assignees', 'departments')
     result = []
     for t in qs:
         if search and search not in t.title.lower() and search not in t.description.lower():
@@ -1269,12 +1357,12 @@ def department_tasks(request):
     priority_f = (request.GET.get('priority') or '').lower().strip()
     role = _user_role(user)
     if role in ('admin', 'manager'):
-        base_qs = Task.objects.filter(deleted=False, approval_status='approved').prefetch_related('assignees', 'departments')
+        base_qs = _tenant_tasks(request).filter(deleted=False, approval_status='approved').prefetch_related('assignees', 'departments')
     else:
         dept_ids = _hod_effective_depts(user)
         if user.department_id and user.department_id not in dept_ids:
             dept_ids.append(user.department_id)
-        base_qs = Task.objects.filter(deleted=False, approval_status='approved', departments__in=dept_ids).distinct().prefetch_related('assignees', 'departments')
+        base_qs = _tenant_tasks(request).filter(deleted=False, approval_status='approved', departments__in=dept_ids).distinct().prefetch_related('assignees', 'departments')
     result = []
     for t in base_qs:
         if search and search not in t.title.lower() and search not in t.description.lower():
@@ -1288,7 +1376,7 @@ def department_tasks(request):
 
 @csrf_exempt
 def task_detail(request, id):
-    t = Task.objects.filter(id=id).prefetch_related('assignees', 'departments').first()
+    t = _tenant_tasks(request).filter(id=id).prefetch_related('assignees', 'departments').first()
     if not t:
         return JsonResponse({'error': 'Not found'}, status=404)
     if request.method == 'GET':
@@ -1338,11 +1426,11 @@ def task_detail(request, id):
             t.edit_requested_by = user
             t.save()
             _add_activity(f"Task '{t.title}' edit submitted for approval by {user.display_name()}", user)
-            for u in User.objects.filter(role__in=['admin', 'manager'], is_active=True):
+            for u in _tenant_users(request).filter(role__in=['admin', 'manager'], is_active=True):
                 _add_notification(u.id, f"✏️ Task '{t.title}' edit requires approval",
                                   ntype='approval', related_id=t.id, related_type='task')
         t.refresh_from_db()
-        t_fresh = Task.objects.filter(id=id).prefetch_related('assignees', 'departments').first()
+        t_fresh = _tenant_tasks(request).filter(id=id).prefetch_related('assignees', 'departments').first()
         return JsonResponse(_serialize_task(t_fresh))
     if request.method == 'DELETE':
         user = _get_session_user(request)
@@ -1365,7 +1453,7 @@ def task_restore(request, id):
     can_access = user and (_is_manager(user) or _has_extra_permission(user, 'manage_recycle_bin'))
     if not can_access:
         return JsonResponse({'error': 'Permission denied'}, status=403)
-    t = Task.objects.filter(id=id).first()
+    t = _tenant_tasks(request).filter(id=id).first()
     if t:
         t.deleted = False
         t.deleted_at = None
@@ -1378,7 +1466,7 @@ def task_purge(request, id):
     user = _get_session_user(request)
     if not user or not (_is_admin(user) or _has_extra_permission(user, 'purge_items')):
         return JsonResponse({'error': 'Permission denied'}, status=403)
-    t = Task.objects.filter(id=id).first()
+    t = _tenant_tasks(request).filter(id=id).first()
     if t:
         _add_activity(f"Task '{t.title}' permanently deleted by {user.display_name()}", user)
         t.delete()
@@ -1389,7 +1477,7 @@ def task_kanban(request, id):
     user = _get_session_user(request)
     if not user:
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
-    t = Task.objects.filter(id=id).prefetch_related('assignees', 'departments').first()
+    t = _tenant_tasks(request).filter(id=id).prefetch_related('assignees', 'departments').first()
     if not t:
         return JsonResponse({'error': 'Not found'}, status=404)
     if not _can_access_item(user, t):
@@ -1401,12 +1489,12 @@ def task_kanban(request, id):
         return JsonResponse({'error': 'This project has passed its due date and is locked. Kanban updates are not allowed.'}, status=403)
     body = _json_body(request)
     _apply_task_body(t, body)
-    t_fresh = Task.objects.filter(id=id).prefetch_related('assignees', 'departments').first()
+    t_fresh = _tenant_tasks(request).filter(id=id).prefetch_related('assignees', 'departments').first()
     return JsonResponse(_serialize_task(t_fresh))
 
 @csrf_exempt
 def task_subtasks(request, id):
-    t = Task.objects.filter(id=id).first()
+    t = _tenant_tasks(request).filter(id=id).first()
     if not t:
         return JsonResponse({'error': 'Not found'}, status=404)
     if request.method == 'POST':
@@ -1453,7 +1541,7 @@ def subtask_delete(request, id):
 
 @csrf_exempt
 def task_comments(request, id):
-    t = Task.objects.filter(id=id).first()
+    t = _tenant_tasks(request).filter(id=id).first()
     if not t:
         return JsonResponse({'error': 'Not found'}, status=404)
     if request.method == 'POST':
@@ -1509,7 +1597,7 @@ def _can_view_files_for_task(user, task):
 @csrf_exempt
 def task_attachments(request, id):
     user = _get_session_user(request)
-    t = Task.objects.filter(id=id).prefetch_related('departments').first()
+    t = _tenant_tasks(request).filter(id=id).prefetch_related('departments').first()
     if not t:
         return JsonResponse({'error': 'Not found'}, status=404)
 
@@ -1590,7 +1678,7 @@ def attachment_download(request, id):
     a = Attachment.objects.filter(id=id, deleted=False).first()
     if not a:
         return JsonResponse({'error': 'Not found'}, status=404)
-    t = Task.objects.filter(id=a.task_id).prefetch_related('departments').first()
+    t = _tenant_tasks(request).filter(id=a.task_id).prefetch_related('departments').first()
     if not t:
         return JsonResponse({'error': 'Not found'}, status=404)
     role = _user_role(user)
@@ -1618,7 +1706,7 @@ def attachment_delete(request, id):
 
 @csrf_exempt
 def task_submit_approval(request, id):
-    t = Task.objects.filter(id=id).prefetch_related('departments').first()
+    t = _tenant_tasks(request).filter(id=id).prefetch_related('departments').first()
     if not t:
         return JsonResponse({'error': 'Not found'}, status=404)
     t.approval_status = 'pending'
@@ -1627,7 +1715,7 @@ def task_submit_approval(request, id):
     name = user.display_name() if user else 'Someone'
     dept_ids = list(t.departments.values_list('id', flat=True))
     head_uids = _get_dept_heads_for_depts(dept_ids)
-    approver_ids = list(User.objects.filter(role__in=['admin', 'manager'], is_active=True).values_list('id', flat=True))
+    approver_ids = list(_tenant_users(request).filter(role__in=['admin', 'manager'], is_active=True).values_list('id', flat=True))
     all_approvers = list(set(head_uids + approver_ids))
     for uid in all_approvers:
         if user and uid == user.id:
@@ -1638,7 +1726,7 @@ def task_submit_approval(request, id):
 
 @csrf_exempt
 def task_approve(request, id):
-    t = Task.objects.filter(id=id).prefetch_related('assignees', 'departments').first()
+    t = _tenant_tasks(request).filter(id=id).prefetch_related('assignees', 'departments').first()
     if not t:
         return JsonResponse({'error': 'Not found'}, status=404)
     user = _get_session_user(request)
@@ -1685,7 +1773,7 @@ def task_approve(request, id):
     action = "edit approved" if is_edit_request else "approved"
     _add_activity(f"Task '{t.title}' {action} by {user.display_name()}", user)
     t.refresh_from_db()
-    t_fresh = Task.objects.filter(id=id).prefetch_related('assignees').first()
+    t_fresh = _tenant_tasks(request).filter(id=id).prefetch_related('assignees').first()
     if is_edit_request:
         if edit_requester_id:
             _add_notification(edit_requester_id, f"✅ Your edit for task '{t.title}' was approved by {user.display_name()}",
@@ -1701,7 +1789,7 @@ def task_approve(request, id):
 
 @csrf_exempt
 def task_reject(request, id):
-    t = Task.objects.filter(id=id).prefetch_related('assignees', 'departments').first()
+    t = _tenant_tasks(request).filter(id=id).prefetch_related('assignees', 'departments').first()
     if not t:
         return JsonResponse({'error': 'Not found'}, status=404)
     user = _get_session_user(request)
@@ -1759,10 +1847,10 @@ def users_workload(request):
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
     role = _user_role(user)
     if role in ('admin', 'manager') or _has_extra_permission(user, 'view_analytics'):
-        visible_users = User.objects.filter(is_active=True)
+        visible_users = _tenant_users(request).filter(is_active=True)
     elif role == 'head_of_department':
         hod_depts = _hod_effective_depts(user)
-        visible_users = User.objects.filter(department_id__in=hod_depts, is_active=True)
+        visible_users = _tenant_users(request).filter(department_id__in=hod_depts, is_active=True)
     else:
         return JsonResponse({'error': 'Not authorised'}, status=403)
     search_filter = (request.GET.get('search') or '').lower().strip()
@@ -1772,8 +1860,8 @@ def users_workload(request):
         visible_users = visible_users.filter(department_id=dept_filter)
     if role_filter:
         visible_users = visible_users.filter(role=role_filter)
-    all_tasks = list(Task.objects.filter(deleted=False).prefetch_related('assignees'))
-    all_projects = list(Project.objects.filter(deleted=False).prefetch_related('project_members'))
+    all_tasks = list(_tenant_tasks(request).filter(deleted=False).prefetch_related('assignees'))
+    all_projects = list(_tenant_projects(request).filter(deleted=False).prefetch_related('project_members'))
     result = []
     for u in visible_users:
         if search_filter:
@@ -1812,7 +1900,7 @@ def users_list(request):
             role_filter = (request.GET.get('role') or '').lower().strip()
             search_filter = (request.GET.get('search') or '').lower().strip()
 
-            qs = User.objects.select_related('department').all()
+            qs = _tenant_users(request).select_related('department')
 
             if dept_filter:
                 qs = qs.filter(department_id=dept_filter)
@@ -1839,7 +1927,7 @@ def users_list(request):
 
             search_filter = (request.GET.get('search') or '').lower().strip()
 
-            qs = User.objects.select_related('department').all()
+            qs = _tenant_users(request).select_related('department')
 
             result = []
 
@@ -1871,6 +1959,19 @@ def users_list(request):
         if User.objects.filter(username=body['username'].strip()).exists():
             return JsonResponse({'detail': 'Username already exists'}, status=400)
 
+        # ── Enforce plan user-limit (skip for superadmin, who has no single tenant) ──
+        tenant = requesting_user.tenant
+        if not _is_superadmin(requesting_user):
+            if not tenant:
+                return JsonResponse({'detail': 'Your account is not assigned to a company.'}, status=403)
+            if tenant.max_users is not None:
+                current_count = _tenant_users(request).count()
+                if current_count >= tenant.max_users:
+                    return JsonResponse({
+                        'detail': f'User limit reached for your plan ({tenant.max_users} users). '
+                                  f'Upgrade your plan to add more users.'
+                    }, status=403)
+
         dept_id = body.get('department')
         user_role = body.get('role', 'employee')
 
@@ -1889,6 +1990,7 @@ def users_list(request):
             phone=body.get('phone', ''),
             bio=body.get('bio', ''),
             extra_permissions=clean_perms,
+            tenant=requesting_user.tenant,
         )
 
         return JsonResponse(_serialize_user(u), status=201)
@@ -1898,7 +2000,7 @@ def users_list(request):
 @csrf_exempt
 def user_detail(request, id):
     requesting_user = _get_session_user(request)
-    u = User.objects.filter(id=id).select_related('department').first()
+    u = _tenant_users(request).filter(id=id).select_related('department').first()
     if not u:
         return JsonResponse({'error': 'Not found'}, status=404)
     if request.method == 'GET':
@@ -1955,7 +2057,7 @@ def user_toggle_active(request, id):
     requesting_user = _get_session_user(request)
     if not requesting_user or not (_is_manager(requesting_user) or _has_extra_permission(requesting_user, 'manage_users')):
         return JsonResponse({'error': 'Permission denied'}, status=403)
-    u = User.objects.filter(id=id).first()
+    u = _tenant_users(request).filter(id=id).first()
     if not u:
         return JsonResponse({'error': 'Not found'}, status=404)
     u.is_active = not u.is_active
@@ -1976,7 +2078,7 @@ def _serialize_role(r):
 @csrf_exempt
 def roles_list(request):
     if request.method == 'GET':
-        return JsonResponse([_serialize_role(r) for r in Role.objects.all()], safe=False)
+        return JsonResponse([_serialize_role(r) for r in _tenant_roles(request).all()], safe=False)
     if request.method == 'POST':
         user = _get_session_user(request)
         if not user or not (_is_admin(user) or _has_extra_permission(user, 'manage_roles')):
@@ -1994,7 +2096,7 @@ def roles_list(request):
 
 @csrf_exempt
 def role_detail(request, id):
-    r = Role.objects.filter(id=id).first()
+    r = _tenant_roles(request).filter(id=id).first()
     if not r:
         return JsonResponse({'error': 'Not found'}, status=404)
     if request.method == 'GET':
@@ -2037,7 +2139,7 @@ def _serialize_department(d):
 @csrf_exempt
 def departments_list(request):
     if request.method == 'GET':
-        return JsonResponse([_serialize_department(d) for d in Department.objects.select_related('head_user').all()], safe=False)
+        return JsonResponse([_serialize_department(d) for d in _tenant_departments(request).select_related('head_user').all()], safe=False)
     if request.method == 'POST':
         user = _get_session_user(request)
         if not user or not (_is_admin(user) or _has_extra_permission(user, 'manage_departments')):
@@ -2058,7 +2160,7 @@ def departments_list(request):
 
 @csrf_exempt
 def department_detail(request, id):
-    d = Department.objects.filter(id=id).select_related('head_user').first()
+    d = _tenant_departments(request).filter(id=id).select_related('head_user').first()
     if not d:
         return JsonResponse({'error': 'Not found'}, status=404)
     if request.method == 'GET':
@@ -2146,7 +2248,7 @@ def channels_list(request):
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
 
     if request.method == 'GET':
-        channels = Channel.objects.filter(
+        channels = _tenant_channels(request).filter(
             channelmember__user=user
         ).distinct()
 
@@ -2172,7 +2274,8 @@ def channels_list(request):
 
         ch = Channel.objects.create(
             name=name,
-            created_by=user
+            created_by=user,
+            tenant=user.tenant,
         )
 
         # Creator is automatically a member
@@ -2182,7 +2285,7 @@ def channels_list(request):
         )
 
         for user_id in member_ids:
-            member = User.objects.filter(id=user_id).first()
+            member = _tenant_users(request).filter(id=user_id).first()
 
             if member:
                 ChannelMember.objects.get_or_create(
@@ -2205,7 +2308,7 @@ def channel_detail(request, channel_id):
     if not user:
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
 
-    ch = Channel.objects.filter(id=int(channel_id)).first()
+    ch = _tenant_channels(request).filter(id=int(channel_id)).first()
 
     if not ch:
         return JsonResponse({'error': 'Channel not found'}, status=404)
@@ -2295,20 +2398,20 @@ def dashboard_view(request):
     user = _get_session_user(request)
     role = _user_role(user)
     if role in ('admin', 'manager'):
-        accessible_projects = list(Project.objects.filter(deleted=False, approval_status='approved').prefetch_related('project_members'))
-        accessible_tasks = list(Task.objects.filter(deleted=False, approval_status='approved'))
+        accessible_projects = list(_tenant_projects(request).filter(deleted=False, approval_status='approved').prefetch_related('project_members'))
+        accessible_tasks = list(_tenant_tasks(request).filter(deleted=False, approval_status='approved'))
     elif role == 'head_of_department':
         hod_depts = _hod_effective_depts(user)
         if not hod_depts and user and user.department_id:
             hod_depts = [user.department_id]
-        accessible_projects = [p for p in Project.objects.filter(deleted=False, approval_status='approved').prefetch_related('departments', 'project_members')
+        accessible_projects = [p for p in _tenant_projects(request).filter(deleted=False, approval_status='approved').prefetch_related('departments', 'project_members')
                                 if any(d in hod_depts for d in p.departments.values_list('id', flat=True))]
-        accessible_tasks = [t for t in Task.objects.filter(deleted=False, approval_status='approved').prefetch_related('departments')
+        accessible_tasks = [t for t in _tenant_tasks(request).filter(deleted=False, approval_status='approved').prefetch_related('departments')
                              if any(d in hod_depts for d in t.departments.values_list('id', flat=True))]
     else:
-        accessible_tasks = [t for t in Task.objects.filter(deleted=False, approval_status='approved').prefetch_related('assignees', 'departments')
+        accessible_tasks = [t for t in _tenant_tasks(request).filter(deleted=False, approval_status='approved').prefetch_related('assignees', 'departments')
                             if _is_item_visible(user, t)] if user else []
-        accessible_projects = [p for p in Project.objects.filter(deleted=False, approval_status='approved').prefetch_related('departments', 'project_members')
+        accessible_projects = [p for p in _tenant_projects(request).filter(deleted=False, approval_status='approved').prefetch_related('departments', 'project_members')
                                if _is_item_visible(user, p)] if user else []
     completed_tasks = [t for t in accessible_tasks if t.status in ('done', 'completed')]
     in_progress_tasks = [t for t in accessible_tasks if t.status == 'in_progress']
@@ -2319,12 +2422,12 @@ def dashboard_view(request):
     if user and _can_approve(user):
         if role in ('admin', 'manager'):
             from django.db.models import Q as _Q
-            pending_approvals = Task.objects.filter(deleted=False).filter(_Q(approval_status='pending') | _Q(edit_approval_status='pending')).count()
-            pending_approvals += Project.objects.filter(deleted=False).filter(_Q(approval_status='pending') | _Q(edit_approval_status='pending')).count()
+            pending_approvals = _tenant_tasks(request).filter(deleted=False).filter(_Q(approval_status='pending') | _Q(edit_approval_status='pending')).count()
+            pending_approvals += _tenant_projects(request).filter(deleted=False).filter(_Q(approval_status='pending') | _Q(edit_approval_status='pending')).count()
         elif role == 'head_of_department':
             hod_depts_pa = _hod_effective_depts(user)
             from django.db.models import Q as _Q
-            pending_approvals = Task.objects.filter(deleted=False, departments__in=hod_depts_pa).filter(_Q(approval_status='pending') | _Q(edit_approval_status='pending')).distinct().count()
+            pending_approvals = _tenant_tasks(request).filter(deleted=False, departments__in=hod_depts_pa).filter(_Q(approval_status='pending') | _Q(edit_approval_status='pending')).distinct().count()
     project_list = []
     accessible_task_ids = [t.id for t in accessible_tasks]
     for p in accessible_projects:
@@ -2347,7 +2450,7 @@ def dashboard_view(request):
             'in_progress_tasks': len(in_progress_tasks),
             'pending_tasks': len(pending_tasks),
             'overdue_tasks': 0,
-            'total_users': User.objects.count(),
+            'total_users': _tenant_users(request).count(),
             'pending_approvals': pending_approvals,
         },
         'projects': project_list,
@@ -2418,12 +2521,12 @@ def extension_requests_list(request):
         if _is_hod(user):
             # HOD sees only extension requests for items in their own department(s)
             hod_depts = _hod_effective_depts(user)
-            all_qs = ExtensionRequest.objects.select_related('requested_by', 'reviewed_by').order_by('-created_at')
+            all_qs = _tenant_extension_requests(request).select_related('requested_by', 'reviewed_by').order_by('-created_at')
             qs = [er for er in all_qs if _ext_item_in_hod_depts(er, hod_depts)]
         else:
-            qs = ExtensionRequest.objects.select_related('requested_by', 'reviewed_by').order_by('-created_at')
+            qs = _tenant_extension_requests(request).select_related('requested_by', 'reviewed_by').order_by('-created_at')
     else:
-        qs = ExtensionRequest.objects.filter(requested_by=user).select_related('requested_by', 'reviewed_by').order_by('-created_at')
+        qs = _tenant_extension_requests(request).filter(requested_by=user).select_related('requested_by', 'reviewed_by').order_by('-created_at')
 
     return JsonResponse([_serialize_extension_request(er) for er in qs], safe=False)
 
@@ -2464,9 +2567,9 @@ def extension_request_create(request):
     # Fetch the target item
     try:
         if content_type == 'project':
-            item = Project.objects.get(id=object_id, deleted=False)
+            item = _tenant_projects(request).get(id=object_id, deleted=False)
         else:
-            item = Task.objects.get(id=object_id, deleted=False)
+            item = _tenant_tasks(request).get(id=object_id, deleted=False)
     except Exception:
         return JsonResponse({'error': f'{content_type.capitalize()} not found'}, status=404)
 
@@ -2474,7 +2577,7 @@ def extension_request_create(request):
         return JsonResponse({'error': f'This {content_type} is not overdue; no extension needed'}, status=400)
 
     # Prevent duplicate pending request
-    existing = ExtensionRequest.objects.filter(
+    existing = _tenant_extension_requests(request).filter(
         content_type=content_type, object_id=object_id, status='pending'
     ).first()
     if existing:
@@ -2487,10 +2590,11 @@ def extension_request_create(request):
         reason=reason,
         requested_new_date=requested_new_date,
         original_due_date=item.due_date,
+        tenant=user.tenant,
     )
 
     # Notify approvers
-    approvers = User.objects.filter(role__in=['admin', 'manager'])
+    approvers = _tenant_users(request).filter(role__in=['admin', 'manager'])
     item_label = item.name if content_type == 'project' else item.title
     for approver in approvers:
         _add_notification(
@@ -2551,12 +2655,12 @@ def extension_request_approve(request, id):
     # Update the actual item's due_date
     try:
         if er.content_type == 'project':
-            item = Project.objects.get(id=er.object_id)
+            item = _tenant_projects(request).get(id=er.object_id)
             item_label = item.name
             item.due_date = er.requested_new_date
             item.save(update_fields=['due_date'])
         else:
-            item = Task.objects.get(id=er.object_id)
+            item = _tenant_tasks(request).get(id=er.object_id)
             item_label = item.title
             item.due_date = er.requested_new_date
             item.save(update_fields=['due_date'])
@@ -2709,7 +2813,7 @@ def channel_members(request, channel_id):
     user = _get_session_user(request)
     if not user:
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
-    ch = Channel.objects.filter(id=channel_id).first()
+    ch = _tenant_channels(request).filter(id=channel_id).first()
     if not ch:
         return JsonResponse({'error': 'Not found'}, status=404)
     if ch.created_by_id != user.id:
@@ -2718,7 +2822,7 @@ def channel_members(request, channel_id):
         body = _json_body(request)
         uid = body.get('user_id')
         if uid:
-            member = User.objects.filter(id=uid).first()
+            member = _tenant_users(request).filter(id=uid).first()
             if member:
                 ChannelMember.objects.get_or_create(channel=ch, user=member)
         members = [_serialize_user(cm.user) for cm in ChannelMember.objects.filter(channel=ch).select_related('user')]
@@ -2731,7 +2835,7 @@ def channel_member_detail(request, channel_id, user_id):
     user = _get_session_user(request)
     if not user:
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
-    ch = Channel.objects.filter(id=channel_id).first()
+    ch = _tenant_channels(request).filter(id=channel_id).first()
     if not ch:
         return JsonResponse({'error': 'Not found'}, status=404)
     if ch.created_by_id != user.id:

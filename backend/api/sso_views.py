@@ -2,13 +2,13 @@
 sso_views.py  ─ Add this file to your api/ folder in Smart Task backend
 Handles SSO login from SaaS Platform.
 """
-import os, json, hmac, hashlib, base64, time
+import os, json, hmac, hashlib, base64, time, uuid
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import get_user_model
 
-from .models import User, ActivityLog
+from .models import User, ActivityLog, Tenant
 
 # ── Env vars (set these in Render dashboard) ──────────────────────────────────
 SAAS_SSO_SECRET   = os.environ.get('SAAS_SSO_SECRET', '')
@@ -84,8 +84,14 @@ def sso_callback(request):
     Steps:
       1. Extract sso_jwt from query params
       2. Verify signature using SAAS_SSO_SECRET
-      3. Find or create user in Smart Task
-      4. Return our own auth token for the frontend to use
+      3. Resolve the Tenant from tenantId in the token
+      4. Find an existing user already tied to that tenant (created via the
+         license-provisioning webhook) — DO NOT create a brand new
+         disconnected user. If no tenant or no matching admin exists yet,
+         this means the license-provision webhook hasn't run for this
+         tenant, so we reject rather than silently creating an orphan
+         account with no tenant isolation.
+      5. Return our own auth token for the frontend to use
     """
     # Accept both GET and POST
     sso_jwt = request.GET.get('sso_jwt') or request.GET.get('sso_token', '')
@@ -112,28 +118,46 @@ def sso_callback(request):
         return JsonResponse({'error': f'SSO verification failed: {str(e)}'}, status=401)
 
     # ── Extract user info ──────────────────────────────────────────────────────
-    # SaaS platform puts userId in 'sub', other info in claims
     user_id_from_saas = payload.get('sub', '')
-    tenant_id         = payload.get('tenantId', '')
-    roles             = payload.get('roles', [])
-    product_code      = payload.get('productCode', '')
+    tenant_id_raw      = payload.get('tenantId', '')
+    roles               = payload.get('roles', [])
 
-    # Note: SaaS JWT doesn't include email/name directly.
-    # We use tenantId + userId as the unique identifier.
-    # Email will be fetched from SaaS platform OR you can add it to the JWT.
-    # For now we create username from the sub (userId from SaaS).
-    username = f"saas_{user_id_from_saas}"
+    if not tenant_id_raw:
+        return JsonResponse({'error': 'SSO token missing tenantId'}, status=400)
 
-    # ── Find or create user in Smart Task ─────────────────────────────────────
-    user, created = User.objects.get_or_create(
-        username=username,
-        defaults={
-            'email':     f"{username}@saas-sso.local",
-            'name':      f"User {user_id_from_saas[:8]}",
-            'role':      _map_role(roles),
-            'is_active': True,
-        }
-    )
+    try:
+        tenant_id = uuid.UUID(str(tenant_id_raw))
+    except ValueError:
+        return JsonResponse({'error': 'Invalid tenantId in SSO token'}, status=400)
+
+    # ── Resolve the Tenant ─────────────────────────────────────────────────
+    tenant = Tenant.objects.filter(id=tenant_id).first()
+    if not tenant:
+        return JsonResponse(
+            {'error': 'This company is not yet provisioned in Smart Task. '
+                      'Ask your platform admin to complete license setup.'},
+            status=403
+        )
+    if not tenant.is_active:
+        return JsonResponse({'error': 'This tenant is inactive. Contact your admin.'}, status=403)
+
+    # ── Find an existing user tied to this tenant ──────────────────────────
+    # Prefer an exact saas-user mapping if one exists from a prior SSO login;
+    # otherwise fall back to the tenant's admin account provisioned by the
+    # license webhook (covers the very first SSO click before any per-user
+    # mapping exists).
+    saas_username = f"saas_{user_id_from_saas}"
+    user = User.objects.filter(username=saas_username, tenant=tenant).first()
+
+    if not user:
+        user = User.objects.filter(tenant=tenant, role='admin').order_by('id').first()
+
+    if not user:
+        return JsonResponse(
+            {'error': 'No Smart Task account exists for this tenant yet. '
+                      'Ask your platform admin to complete license setup.'},
+            status=403
+        )
 
     if not user.is_active:
         return JsonResponse(
@@ -145,7 +169,7 @@ def sso_callback(request):
     token = _make_token(user.id)
 
     ActivityLog.objects.create(
-        action=f"SSO login via SaaS Platform (tenant: {tenant_id}, saas_user: {user_id_from_saas})",
+        action=f"SSO login via SaaS Platform (tenant: {tenant.id}, saas_user: {user_id_from_saas})",
         user=user,
         user_name=user.display_name(),
     )
@@ -158,8 +182,12 @@ def sso_callback(request):
             'name':  user.display_name(),
             'role':  user.role,
         },
+        'tenant': {
+            'id': str(tenant.id),
+            'name': tenant.name,
+            'plan_code': tenant.plan_code,
+        },
         'sso':     True,
-        'created': created,
     })
 
 
