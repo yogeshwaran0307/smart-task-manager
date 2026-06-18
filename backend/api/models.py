@@ -1,7 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 import re
-
+import uuid
 
 class Department(models.Model):
     name = models.CharField(max_length=200)
@@ -11,6 +11,10 @@ class Department(models.Model):
         on_delete=models.SET_NULL,
         related_name='headed_departments'
     )
+    tenant = models.ForeignKey(
+        'Tenant', null=True, blank=True,
+        on_delete=models.CASCADE, related_name='departments'
+    )
 
     def __str__(self):
         return self.name
@@ -18,6 +22,7 @@ class Department(models.Model):
 
 class User(AbstractUser):
     ROLE_CHOICES = [
+        ('superadmin', 'Super Admin'),
         ('admin', 'Admin'), ('manager', 'Manager'),
         ('head_of_department', 'Head of Department'),
         ('senior', 'Senior'), ('junior', 'Junior'), ('employee', 'Employee'),
@@ -27,6 +32,10 @@ class User(AbstractUser):
     department = models.ForeignKey(
         Department, null=True, blank=True,
         on_delete=models.SET_NULL, related_name='members'
+    )
+    tenant = models.ForeignKey(
+        'Tenant', null=True, blank=True,
+        on_delete=models.CASCADE, related_name='users'
     )
     phone = models.CharField(max_length=50, blank=True)
     bio = models.TextField(blank=True)
@@ -45,6 +54,10 @@ class User(AbstractUser):
 
 
 class Role(models.Model):
+    tenant = models.ForeignKey(
+        'Tenant', null=True, blank=True,
+        on_delete=models.CASCADE, related_name='roles'
+    )
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True, default='')
     permissions = models.JSONField(default=list)
@@ -73,6 +86,10 @@ def _generate_project_code(name):
 
 
 class Project(models.Model):
+    tenant = models.ForeignKey(
+        'Tenant', null=True, blank=True,
+        on_delete=models.CASCADE, related_name='projects'
+    )
     project_code = models.CharField(max_length=20, unique=True, blank=True)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -141,6 +158,10 @@ def _generate_task_code(project):
 
 
 class Task(models.Model):
+    tenant = models.ForeignKey(
+        'Tenant', null=True, blank=True,
+        on_delete=models.CASCADE, related_name='tasks'
+    )
     task_code = models.CharField(max_length=30, unique=True, blank=True)
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
@@ -222,6 +243,10 @@ class DMMessage(models.Model):
 
 
 class Channel(models.Model):
+    tenant = models.ForeignKey(
+        'Tenant', null=True, blank=True,
+        on_delete=models.CASCADE, related_name='channels'
+    )
     name = models.CharField(max_length=200)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_channels')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -252,6 +277,10 @@ class ExtensionRequest(models.Model):
         ('approved', 'Approved'),
         ('rejected', 'Rejected'),
     ]
+    tenant = models.ForeignKey(
+        'Tenant', null=True, blank=True,
+        on_delete=models.CASCADE, related_name='extension_requests'
+    )
     content_type = models.CharField(max_length=20)          # 'project' or 'task'
     object_id = models.IntegerField()
     requested_by = models.ForeignKey(
@@ -279,3 +308,15 @@ class ExtensionRequest(models.Model):
 
     def __str__(self):
         return f"ExtensionRequest({self.content_type}#{self.object_id} → {self.requested_new_date})"
+
+
+class Tenant(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)  # same UUID as SaaS platform's tenant id
+    name = models.CharField(max_length=200)
+    plan_code = models.CharField(max_length=50, default='SMART_TASK_BASIC')
+    max_users = models.IntegerField(null=True, blank=True)  # null = unlimited (Enterprise)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
