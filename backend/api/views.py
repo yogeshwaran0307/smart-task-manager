@@ -17,6 +17,16 @@ from .models import (
     ExtensionRequest,
 )
 
+SECRET = os.environ.get('TOKEN_SECRET', 'smarttask-secret-key-dev-change-in-production')
+TOKEN_MAX_AGE_SECONDS = int(os.environ.get('TOKEN_MAX_AGE_SECONDS', str(24 * 3600)))  # 24 h default
+
+# ── TOKEN ──────────────────────────────────────────────────────────────────────
+def _make_token(user_id):
+    import time
+    payload = f"{user_id}:{int(time.time())}"
+    sig = hmac.new(SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()[:16]
+    return base64.urlsafe_b64encode(f"{payload}:{sig}".encode()).decode()
+
 def _verify_token(token):
     try:
         import time
@@ -34,7 +44,7 @@ def _verify_token(token):
         if not user:
             return None
 
-        # NEW: block users whose tenant is inactive or missing
+        # Block users whose tenant is inactive or missing
         if user.role != 'superadmin':
             if not user.tenant_id or not user.tenant.is_active:
                 return None
@@ -42,6 +52,21 @@ def _verify_token(token):
         return user
     except Exception:
         return None
+
+def _get_session_user(request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '').strip()
+    if not token:
+        token = request.COOKIES.get('auth_token', '')
+    if not token:
+        return None
+    return _verify_token(token)
+
+def _json_body(request):
+    try:
+        return json.loads(request.body or '{}')
+    except Exception:
+        return {}
+
 # ── ROLE HELPERS ───────────────────────────────────────────────────────────────
 RESTRICTED_ROLES = ('junior', 'employee')
 
@@ -479,6 +504,9 @@ def login_view(request):
     user = User.objects.filter(username=username, is_active=True).first()
     if not user or user.username != username or not user.check_password(password):
        return JsonResponse({'error': 'Invalid credentials'}, status=400)
+    if user.role != 'superadmin':
+        if not user.tenant_id or not user.tenant.is_active:
+            return JsonResponse({'error': "Your company's access is inactive. Contact your admin."}, status=403)
     token = _make_token(user.id)
     _add_activity(f"{user.display_name()} logged in", user)
     resp = JsonResponse({'token': token, 'user': _serialize_user(user)})
