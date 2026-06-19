@@ -242,7 +242,7 @@ def _can_edit_item(user, item):
     if not user:
         return False
     role = _user_role(user)
-    if role in ('admin', 'manager'):
+    if role in ('admin', 'manager', 'superadmin'):
         return True
     if role == 'head_of_department':
         hod_depts = _hod_effective_depts(user)
@@ -276,7 +276,7 @@ def _can_access_item(user, item):
     if not user:
         return False
     role = _user_role(user)
-    if role in ('admin', 'manager'):
+    if role in ('admin', 'manager', 'superadmin'):
         return True
     # Users with view_all_projects permission can see all projects/tasks
     if _has_extra_permission(user, 'view_all_projects'):
@@ -305,13 +305,13 @@ def _is_item_visible(user, item):
     role = _user_role(user)
     approval_status = item.approval_status
     if approval_status == 'rejected':
-        if role in ('admin', 'manager'):
+        if role in ('admin', 'manager', 'superadmin'):
             return True
         if item.created_by_id == user.id:
             return True
         return False
     if approval_status == 'pending':
-        if role in ('admin', 'manager'):
+        if role in ('admin', 'manager', 'superadmin'):
             return True
         if item.created_by_id == user.id:
             return True
@@ -597,7 +597,7 @@ def approvals_list(request):
         Q(approval_status='pending') | Q(edit_approval_status='pending')
     ).prefetch_related('departments', 'project_members__user')
     # Admin, manager, or users with approve_tasks permission see all
-    is_full_approver = role in ('admin', 'manager') or _has_extra_permission(user, 'approve_tasks')
+    is_full_approver = role in ('admin', 'manager', 'superadmin') or _has_extra_permission(user, 'approve_tasks')
 
     def _expand_pending_changes(base_dict, item, item_type):
         """If pending_changes is a list (queue), emit one entry per change request.
@@ -1005,7 +1005,7 @@ def project_analytics(request):
     if not user:
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
     role = _user_role(user)
-    if role in ('admin', 'manager') or _has_extra_permission(user, 'view_analytics'):
+    if role in ('admin', 'manager', 'superadmin') or _has_extra_permission(user, 'view_analytics'):
         visible_projects = list(_tenant_projects(request).filter(deleted=False, approval_status='approved'))
         visible_tasks = list(_tenant_tasks(request).filter(deleted=False, approval_status='approved'))
         # Weekly counts include ALL non-deleted tasks (any approval status)
@@ -1032,7 +1032,7 @@ def project_analytics(request):
     completed_tasks = [t for t in visible_tasks if t.status in ('done', 'completed')]
     in_progress = [t for t in visible_tasks if t.status == 'in_progress']
     pending = [t for t in visible_tasks if t.status in ('pending', 'todo')]
-    scope_label = 'Company-wide' if role in ('admin', 'manager') else ('Department' if role == 'head_of_department' else 'Your Assignments')
+    scope_label = 'Company-wide' if role in ('admin', 'manager', 'superadmin') else ('Department' if role == 'head_of_department' else 'Your Assignments')
 
     # ── Weekly Task Activity: rolling last-7-days window ────────────────────────
     # Uses last 7 days (today inclusive) so the chart always shows recent activity.
@@ -1356,7 +1356,7 @@ def department_tasks(request):
     status_f = (request.GET.get('status') or '').lower().strip()
     priority_f = (request.GET.get('priority') or '').lower().strip()
     role = _user_role(user)
-    if role in ('admin', 'manager'):
+    if role in ('admin', 'manager', 'superadmin'):
         base_qs = _tenant_tasks(request).filter(deleted=False, approval_status='approved').prefetch_related('assignees', 'departments')
     else:
         dept_ids = _hod_effective_depts(user)
@@ -1579,7 +1579,7 @@ def _can_view_files_for_task(user, task):
     if not user:
         return False
     role = _user_role(user)
-    if role in ('admin', 'manager'):
+    if role in ('admin', 'manager', 'superadmin'):
         return True
     if role == 'head_of_department':
         hod_depts = _hod_effective_depts(user)
@@ -1611,7 +1611,7 @@ def task_attachments(request, id):
         for a in atts:
             visible_to_ids = list(a.visible_to.values_list('id', flat=True))
             can_see = (
-                role in ('admin', 'manager') or
+                role in ('admin', 'manager', 'superadmin') or
                 a.uploaded_by_id == user.id or
                 (can_view_all and not visible_to_ids) or
                 user.id in visible_to_ids
@@ -1684,7 +1684,7 @@ def attachment_download(request, id):
     role = _user_role(user)
     visible_to_ids = list(a.visible_to.values_list('id', flat=True))
     can_download = (
-        role in ('admin', 'manager') or
+        role in ('admin', 'manager', 'superadmin') or
         a.uploaded_by_id == user.id or
         (_can_view_files_for_task(user, t) and not visible_to_ids) or
         user.id in visible_to_ids
@@ -1846,7 +1846,7 @@ def users_workload(request):
     if not user:
         return JsonResponse({'error': 'Unauthenticated'}, status=401)
     role = _user_role(user)
-    if role in ('admin', 'manager') or _has_extra_permission(user, 'view_analytics'):
+    if role in ('admin', 'manager', 'superadmin') or _has_extra_permission(user, 'view_analytics'):
         visible_users = _tenant_users(request).filter(is_active=True)
     elif role == 'head_of_department':
         hod_depts = _hod_effective_depts(user)
@@ -2397,7 +2397,7 @@ def channel_detail(request, channel_id):
 def dashboard_view(request):
     user = _get_session_user(request)
     role = _user_role(user)
-    if role in ('admin', 'manager'):
+    if role in ('admin', 'manager', 'superadmin'):
         accessible_projects = list(_tenant_projects(request).filter(deleted=False, approval_status='approved').prefetch_related('project_members'))
         accessible_tasks = list(_tenant_tasks(request).filter(deleted=False, approval_status='approved'))
     elif role == 'head_of_department':
@@ -2420,7 +2420,7 @@ def dashboard_view(request):
     completed_projects = [p for p in accessible_projects if (p.status or '').lower() == 'completed']
     pending_approvals = 0
     if user and _can_approve(user):
-        if role in ('admin', 'manager'):
+        if role in ('admin', 'manager', 'superadmin'):
             from django.db.models import Q as _Q
             pending_approvals = _tenant_tasks(request).filter(deleted=False).filter(_Q(approval_status='pending') | _Q(edit_approval_status='pending')).count()
             pending_approvals += _tenant_projects(request).filter(deleted=False).filter(_Q(approval_status='pending') | _Q(edit_approval_status='pending')).count()
