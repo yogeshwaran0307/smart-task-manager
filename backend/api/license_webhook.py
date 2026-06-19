@@ -165,3 +165,100 @@ def license_provision(request):
             'created': admin_created,
         },
     })
+@csrf_exempt
+def license_cancel(request):
+    """
+    POST /api/webhooks/license-cancel/
+    
+    Called by SaaS Platform when a license is cancelled or suspended.
+    Deactivates the tenant so all users get blocked on next request.
+    Does NOT delete any data — just sets is_active = False.
+    
+    Headers:
+      X-Webhook-Secret: <SAAS_WEBHOOK_SECRET>
+    
+    Body (JSON):
+      { "tenant_id": "uuid-here" }
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=405)
+
+    incoming_secret = request.headers.get('X-Webhook-Secret', '')
+    if not WEBHOOK_SECRET or incoming_secret != WEBHOOK_SECRET:
+        return JsonResponse({'error': 'Invalid or missing webhook secret'}, status=401)
+
+    import json
+    try:
+        body = json.loads(request.body or '{}')
+    except Exception:
+        return JsonResponse({'error': 'Invalid JSON body'}, status=400)
+
+    tenant_id_raw = body.get('tenant_id', '')
+    if not tenant_id_raw:
+        return JsonResponse({'error': 'Missing tenant_id'}, status=400)
+
+    try:
+        import uuid
+        tenant_id = uuid.UUID(str(tenant_id_raw))
+    except ValueError:
+        return JsonResponse({'error': 'Invalid tenant_id'}, status=400)
+
+    tenant = Tenant.objects.filter(id=tenant_id).first()
+    if not tenant:
+        return JsonResponse({'error': 'Tenant not found'}, status=404)
+
+    tenant.is_active = False
+    tenant.save()
+
+    return JsonResponse({
+        'success': True,
+        'tenant_id': str(tenant.id),
+        'tenant_name': tenant.name,
+        'status': 'deactivated',
+    })
+
+
+@csrf_exempt  
+def license_reactivate(request):
+    """
+    POST /api/webhooks/license-reactivate/
+    
+    Called when a canceled license is reinstated.
+    Re-activates the tenant so users can log in again.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=405)
+
+    incoming_secret = request.headers.get('X-Webhook-Secret', '')
+    if not WEBHOOK_SECRET or incoming_secret != WEBHOOK_SECRET:
+        return JsonResponse({'error': 'Invalid or missing webhook secret'}, status=401)
+
+    import json
+    try:
+        body = json.loads(request.body or '{}')
+    except Exception:
+        return JsonResponse({'error': 'Invalid JSON body'}, status=400)
+
+    tenant_id_raw = body.get('tenant_id', '')
+    if not tenant_id_raw:
+        return JsonResponse({'error': 'Missing tenant_id'}, status=400)
+
+    try:
+        import uuid
+        tenant_id = uuid.UUID(str(tenant_id_raw))
+    except ValueError:
+        return JsonResponse({'error': 'Invalid tenant_id'}, status=400)
+
+    tenant = Tenant.objects.filter(id=tenant_id).first()
+    if not tenant:
+        return JsonResponse({'error': 'Tenant not found'}, status=404)
+
+    tenant.is_active = True
+    tenant.save()
+
+    return JsonResponse({
+        'success': True,
+        'tenant_id': str(tenant.id),
+        'tenant_name': tenant.name,
+        'status': 'reactivated',
+    })

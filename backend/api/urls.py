@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import *
 from .sso_views import sso_callback, sso_verify
-from .license_webhook import license_provision
+from .license_webhook import license_provision, license_cancel, license_reactivate
 urlpatterns = [
     path('auth/login/', login_view),
     path('auth/logout/', logout_view),
@@ -81,4 +81,6 @@ urlpatterns = [
 
     # ── License provisioning webhook (called by SaaS Platform) ──
     path('webhooks/license-provision/', license_provision),
+    path('webhooks/license-cancel/', license_cancel),
+    path('webhooks/license-reactivate/', license_reactivate),
 ]
